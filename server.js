@@ -10,14 +10,17 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Redireciona a raiz para o admin.html
 app.get('/', (req, res) => {
     res.redirect('/admin.html');
 });
 
-// A chave pode vir da variável de ambiente do Render
+// --- CONFIGURAÇÕES ---
 const API_KEY = process.env.API_KEY || "78cfaff5-5122-4990-9112-5dc1d12a6179";
 const BASE_URL = "https://spro.agency/api";
+
+// AJUSTE MANUAL DE HORAS: Se estiver errado, mude este valor.
+// Ex: Se o jogo é 19:00 e mostra 16:00, coloque 3. Se mostra 22:00, coloque -3.
+const FIX_HORA = 0; 
 
 let gameState = {
     homeName: "CASA", awayName: "FORA",
@@ -53,11 +56,14 @@ setInterval(() => {
     if (gameState.matchId) fetchGameData();
 }, 15000); 
 
+// --- FUNÇÃO DE DATA (UTC PADRÃO + AJUSTE) ---
 function parseBoltDate(dateStr) {
     try {
         if (!dateStr) return new Date();
+        // Limpeza: "2026-01-30, 07:00 PM" -> "2026-01-30 07:00 PM"
         let cleanStr = dateStr.replace(',', '').trim(); 
         const parts = cleanStr.split(/\s+/); 
+        
         let datePart = parts[0]; 
         let timePart = parts[1]; 
         let meridian = parts.length > 2 ? parts[2] : null;
@@ -65,12 +71,20 @@ function parseBoltDate(dateStr) {
         if (!timePart) return new Date(); 
 
         let [hours, minutes] = timePart.split(':').map(Number);
+
+        // Converte 12h -> 24h
         if (meridian === 'PM' && hours < 12) hours += 12;
         if (meridian === 'AM' && hours === 12) hours = 0;
 
-        const isoString = `${datePart}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000`;
+        // Aplica o FIX manual (correção de fuso forçada se necessário)
+        hours += FIX_HORA;
+
+        // Cria string ISO UTC (com Z no final) para o navegador converter pro local dele
+        const isoString = `${datePart}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000Z`;
+        
         return new Date(isoString);
     } catch (e) {
+        console.error("Erro data:", e);
         return new Date();
     }
 }
@@ -85,13 +99,31 @@ async function listMatches() {
         if (!Array.isArray(data)) return [];
 
         const now = new Date();
-        const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+        // Data de "Hoje" baseada no servidor
+        const todayStr = now.toISOString().split('T')[0];
 
-        const forbiddenSports = ['ncaab', 'ncaa', 'basketball', 'nba', 'euroleague', 'ufc', 'boxing', 'mma', 'fighting', 'nhl', 'hockey', 'nfl', 'football', 'american football', 'volleyball', 'tennis', 'handball', 'cricket', 'rugby'];
+        // --- FILTRO DE ESPORTES MAIS RIGOROSO ---
+        const forbiddenSports = [
+            'ncaab', 'ncaa', 'basketball', 'nba', 'euroleague', 
+            'call of duty', 'cod', 'league of legends', 'lol', 'valorant', 'esports', 'e-sports',
+            'ufc', 'boxing', 'mma', 'fighting',
+            'nhl', 'hockey', 'ice hockey', 'nfl', 'football', 'american football',
+            'volleyball', 'tennis', 'handball', 'cricket', 'rugby', 'snooker', 'darts'
+        ];
 
         const validMatches = data.filter(m => {
-            const sport = (m.sport || "").toLowerCase();
-            return !forbiddenSports.some(bad => sport.includes(bad)) && m.when && m.when.startsWith(todayStr);
+            // Verifica tanto o campo 'sport' quanto o nome da competição
+            const sportName = (m.sport || "").toLowerCase();
+            const leagueName = (m.league || "").toLowerCase();
+            
+            const isForbidden = forbiddenSports.some(bad => 
+                sportName.includes(bad) || leagueName.includes(bad)
+            );
+            
+            if (isForbidden) return false;
+            
+            // Filtro de Data (Começa hoje)
+            return m.when && m.when.startsWith(todayStr);
         });
 
         matchesCache = validMatches;
@@ -110,7 +142,7 @@ async function listMatches() {
 
             return {
                 id: event.universal_id || event.id,
-                utcDate: realDateObj.toString(),
+                utcDate: realDateObj.toISOString(), 
                 competition: { name: event.sport || "Futebol" },
                 homeTeam: { shortName: home },
                 awayTeam: { shortName: away }
@@ -118,6 +150,7 @@ async function listMatches() {
         });
 
     } catch (error) {
+        console.error("Erro ao listar:", error.message);
         return [];
     }
 }
