@@ -2,108 +2,120 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Overlay OBS - Com Escudos</title>
+    <title>Overlay Completo</title>
     <style>
         body { 
             margin: 0; overflow: hidden; background: transparent; 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: white;
-            display: grid; grid-template-rows: 100px 1fr 150px;
+            display: grid; grid-template-rows: 120px 1fr 100px; /* Ajustei altura */
             height: 100vh; width: 100vw;
         }
         :root { --home-color: #c8102e; --away-color: #003090; }
 
-        /* Placar Topo */
+        /* --- TOPO: PLACAR --- */
         .header {
-            display: flex; justify-content: center; align-items: center;
+            display: flex; justify-content: center; align-items: flex-start;
             background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
-            gap: 20px; padding-top: 15px;
+            gap: 30px; padding-top: 20px;
         }
         
         .team-box {
-            display: flex; align-items: center; justify-content: space-between; gap: 15px;
-            padding: 10px 25px; 
-            background: rgba(15, 15, 20, 0.9); 
-            border-bottom: 5px solid;
-            min-width: 200px; border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            display: flex; align-items: center; gap: 15px;
+            padding: 10px 20px; background: rgba(15, 15, 20, 0.95); 
+            border-bottom: 5px solid; border-radius: 8px;
+            min-width: 220px; justify-content: space-between;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
         }
+        .team-name { font-size: 26px; font-weight: 800; text-transform: uppercase; }
+        .team-logo { width: 50px; height: 50px; object-fit: contain; filter: drop-shadow(0 0 3px white); }
 
-        .team-name { font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
-        
-        /* Configuração do Escudo */
-        .team-logo {
-            width: 50px; height: 50px; 
-            object-fit: contain; /* Garante que o escudo não fique esticado */
-            filter: drop-shadow(0 0 5px rgba(255,255,255,0.2));
-        }
-
+        .score-container { display: flex; flex-direction: column; align-items: center; }
         .score-box {
-            font-size: 45px; font-weight: 900; background: #000; color: #fff;
-            padding: 5px 30px; border-radius: 10px; border: 2px solid #333;
-            display: flex; align-items: center; gap: 10px;
+            font-size: 50px; font-weight: 900; background: #000; color: #fff;
+            padding: 5px 30px; border-radius: 12px; border: 2px solid #333;
+            display: flex; align-items: center; gap: 15px; line-height: 1;
+        }
+        .game-status {
+            background: #fff; color: #000; padding: 4px 12px; 
+            border-radius: 0 0 8px 8px; font-weight: bold; font-size: 14px; margin-top: -2px;
         }
 
-        .game-status {
-            background: #fff; color: #000; padding: 5px 10px; 
-            border-radius: 4px; font-weight: bold; font-size: 14px;
-            align-self: flex-start; margin-top: 25px;
+        /* --- MEIO: ESCALAÇÕES --- */
+        .main-area { display: flex; justify-content: space-between; padding: 0 20px; margin-top: 20px; }
+        
+        .sidebar { 
+            width: 240px; background: rgba(0,0,0,0.9); 
+            padding: 15px; border-radius: 10px; 
+            display: none; /* Escondido por padrão, aparece se tiver dados */
+            flex-direction: column; gap: 5px;
+            border: 1px solid #333;
+        }
+        .sidebar-title { 
+            text-align: center; border-bottom: 2px solid #555; 
+            padding-bottom: 8px; margin-bottom: 5px; font-weight: bold; color: #ddd; text-transform: uppercase; font-size: 14px;
+        }
+        .player-row { font-size: 14px; border-bottom: 1px solid #222; padding: 4px 0; display: flex; gap: 8px;}
+        .player-num { font-weight: bold; color: #aaa; width: 25px; text-align: right;}
+
+        /* --- RODAPÉ: EVENTOS --- */
+        .footer { 
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-end; 
+            padding-bottom: 20px; gap: 10px;
         }
         
-        /* Layout Geral */
-        .main-area { display: flex; justify-content: space-between; padding: 20px; }
-        .sidebar { width: 250px; background: rgba(0,0,0,0.85); padding: 15px; border-radius: 10px; height: fit-content; }
-        .sidebar h3 { margin-top: 0; border-bottom: 1px solid #555; padding-bottom: 10px; font-size: 16px; color: #aaa;}
-        .jogador { font-size: 14px; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 4px; }
-        
-        .footer { display: flex; justify-content: center; align-items: flex-end; padding-bottom: 20px; }
-        .campinho { 
-            width: 600px; height: 120px; 
-            background: #2a4a2a; border-radius: 8px; 
-            display: flex; justify-content: center; align-items: center; 
-            border: 2px solid #444; font-weight: bold; color: #888;
+        .events-container {
+            background: rgba(0,0,0,0.8);
+            padding: 10px 20px; border-radius: 20px;
+            border: 1px solid #444;
+            display: flex; gap: 20px; align-items: center;
         }
+        .event-item { font-weight: bold; font-size: 18px; text-shadow: 1px 1px 2px black; animation: fadeIn 0.5s;}
         
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
     </style>
 </head>
 <body>
     <div class="header">
         <div class="team-box" style="border-color: var(--home-color)">
             <span class="team-name" id="homeName">CASA</span>
-            <img id="homeCrest" class="team-logo" src="" alt="">
+            <img id="homeCrest" class="team-logo" src="">
         </div>
         
-        <div class="score-box">
-            <span id="homeScore">0</span>
-            <span style="font-size: 20px; color:#555">-</span> 
-            <span id="awayScore">0</span>
+        <div class="score-container">
+            <div class="score-box">
+                <span id="homeScore">0</span>
+                <span style="font-size: 20px; color:#555">-</span> 
+                <span id="awayScore">0</span>
+            </div>
+            <div class="game-status" id="gameTime">00:00</div>
         </div>
 
-        <div class="team-box" style="border-color: var(--away-color)">
-            <img id="awayCrest" class="team-logo" src="" alt="">
+        <div class="team-box" style="border-color: var(--away-color); flex-direction: row-reverse;">
             <span class="team-name" id="awayName">FORA</span>
+            <img id="awayCrest" class="team-logo" src="">
         </div>
-
-        <div class="game-status" id="gameTime">00:00</div>
     </div>
 
     <div class="main-area">
-        <div class="sidebar">
-            <h3>Escalação Casa</h3>
-            <div class="jogador">1. Goleiro</div>
-            <div class="jogador">10. Craque</div>
+        <div id="homeSidebar" class="sidebar">
+            <div class="sidebar-title">Escalação</div>
+            <div id="homeListContent"></div>
         </div>
         
-        <div style="flex-grow: 1;"></div> 
-
-        <div class="sidebar">
-            <h3>Escalação Fora</h3>
-            <div class="jogador">1. Goleiro</div>
-            <div class="jogador">9. Atacante</div>
+        <div style="flex-grow: 1;"></div> <div id="awaySidebar" class="sidebar">
+            <div class="sidebar-title">Escalação</div>
+            <div id="awayListContent"></div>
         </div>
     </div>
 
     <div class="footer">
-        <div class="campinho">WIDGET API (Campinho)</div>
+        <div id="eventsContainer" class="events-container" style="display: none;">
+            </div>
+        
+        <div style="background:#2a4a2a; color:#888; padding: 5px 20px; border-radius: 5px; font-size: 12px; border:1px solid #555;">
+            CAMPO VIRTUAL
+        </div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
@@ -111,21 +123,55 @@
         const socket = io();
 
         socket.on('updateOverlay', (data) => {
-            // Textos
+            // 1. Atualiza Topo
             document.getElementById('homeName').innerText = data.homeName;
             document.getElementById('awayName').innerText = data.awayName;
             document.getElementById('homeScore').innerText = data.homeScore;
             document.getElementById('awayScore').innerText = data.awayScore;
             document.getElementById('gameTime').innerText = data.gameTime;
-
-            // Imagens (Escudos)
             if(data.homeCrest) document.getElementById('homeCrest').src = data.homeCrest;
             if(data.awayCrest) document.getElementById('awayCrest').src = data.awayCrest;
-
-            // Cores
             document.documentElement.style.setProperty('--home-color', data.homeColor);
             document.documentElement.style.setProperty('--away-color', data.awayColor);
+
+            // 2. Atualiza Escalações (Lógica Inteligente)
+            updateLineup('homeSidebar', 'homeListContent', data.homeLineup);
+            updateLineup('awaySidebar', 'awayListContent', data.awayLineup);
+
+            // 3. Atualiza Eventos
+            const eventsDiv = document.getElementById('eventsContainer');
+            if (data.events && data.events.length > 0) {
+                eventsDiv.style.display = 'flex';
+                // Pega só o ultimo evento para destaque ou lista os 3 ultimos
+                // Aqui vamos mostrar os eventos lado a lado separados por |
+                eventsDiv.innerHTML = data.events.slice(0, 3).map(e => 
+                    `<span class="event-item">${e.text}</span>`
+                ).join('<span style="color:#555; margin:0 10px;">|</span>');
+            } else {
+                eventsDiv.style.display = 'none';
+            }
         });
+
+        function updateLineup(sidebarId, listId, players) {
+            const sidebar = document.getElementById(sidebarId);
+            const list = document.getElementById(listId);
+            
+            // Se a lista estiver vazia, esconde a barra lateral inteira
+            if (!players || players.length === 0) {
+                sidebar.style.display = 'none';
+                return;
+            }
+
+            // Se tem jogadores, mostra e preenche
+            sidebar.style.display = 'flex';
+            list.innerHTML = ''; // Limpa anterior
+            players.forEach(p => {
+                const row = document.createElement('div');
+                row.className = 'player-row';
+                row.innerHTML = `<span class="player-num">${p.number || '-'}</span> <span>${p.name}</span>`;
+                list.appendChild(row);
+            });
+        }
     </script>
 </body>
 </html>
