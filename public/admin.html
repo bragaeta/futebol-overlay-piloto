@@ -2,60 +2,53 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Painel de Controle - Futebol</title>
+    <title>Admin - Automático</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
-        label { display: block; margin-top: 10px; font-weight: bold; }
-        input { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; }
-        .row { display: flex; gap: 10px; }
-        button { background: #007bff; color: white; border: none; padding: 15px; width: 100%; margin-top: 20px; font-size: 18px; cursor: pointer; border-radius: 5px; }
-        button:hover { background: #0056b3; }
+        body { font-family: sans-serif; padding: 20px; background: #eee; }
+        .card { background: white; padding: 20px; border-radius: 8px; max-width: 500px; margin: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        input { width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; }
+        button { width: 100%; padding: 15px; background: #28a745; color: white; border: none; font-size: 16px; cursor: pointer; }
+        button.manual { background: #6c757d; margin-top: 10px; }
         h2 { text-align: center; }
+        .status { text-align: center; font-weight: bold; margin-bottom: 10px; color: #555; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>Controle da Transmissão</h2>
-        
-        <div class="row">
-            <div>
-                <label>Time Casa</label>
-                <input type="text" id="homeName" value="Cruzeiro">
-                <label>Cor Casa</label>
-                <input type="color" id="homeColor" value="#0000ff">
-                <label>Gols Casa</label>
-                <input type="number" id="homeScore" value="0">
-            </div>
-            <div>
-                <label>Time Fora</label>
-                <input type="text" id="awayName" value="Atlético">
-                <label>Cor Fora</label>
-                <input type="color" id="awayColor" value="#000000">
-                <label>Gols Fora</label>
-                <input type="number" id="awayScore" value="0">
-            </div>
-        </div>
+        <h2>Automação de Jogo</h2>
+        <div class="status">Modo: <span id="modoApi">Manual</span></div>
 
-        <label>Tempo de Jogo</label>
-        <input type="text" id="gameTime" value="00:00">
+        <label>ID da Partida (API-Football)</label>
+        <input type="number" id="matchId" placeholder="Ex: 718243">
+        <button onclick="startTracking()">INICIAR RASTREIO AUTOMÁTICO</button>
 
-        <button onclick="updateGame()">ATUALIZAR TELA</button>
+        <hr style="margin: 20px 0;">
+
+        <h3>Controle Manual (Emergência)</h3>
+        <input type="text" id="homeName" placeholder="Time Casa">
+        <input type="number" id="homeScore" placeholder="Gols Casa">
+        <button class="manual" onclick="updateManual()">Forçar Atualização</button>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
 
-        function updateGame() {
-            const data = {
+        function startTracking() {
+            const id = document.getElementById('matchId').value;
+            if (id) {
+                socket.emit('trackMatch', id);
+                document.getElementById('modoApi').innerText = "Buscando dados na API...";
+                document.getElementById('modoApi').style.color = "green";
+                alert("O servidor vai buscar atualizações a cada 15 segundos.");
+            }
+        }
+
+        function updateManual() {
+            // Código manual igual ao anterior...
+             const data = {
                 homeName: document.getElementById('homeName').value,
-                awayName: document.getElementById('awayName').value,
-                homeScore: document.getElementById('homeScore').value,
-                awayScore: document.getElementById('awayScore').value,
-                homeColor: document.getElementById('homeColor').value,
-                awayColor: document.getElementById('awayColor').value,
-                gameTime: document.getElementById('gameTime').value
+                homeScore: document.getElementById('homeScore').value
             };
             socket.emit('updateGame', data);
         }
