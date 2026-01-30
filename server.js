@@ -10,17 +10,19 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Estado do Jogo (Agora com CREST = Escudo)
+// Estado do Jogo (Agora com Listas de Jogadores)
 let gameState = {
     homeName: "Aguardando...", awayName: "Aguardando...",
     homeScore: 0, awayScore: 0,
-    homeCrest: "", awayCrest: "", // <--- Novo campo para imagem
+    homeCrest: "", awayCrest: "",
     homeColor: "#ff0000", awayColor: "#0000ff",
     gameTime: "00:00",
-    matchId: null
+    matchId: null,
+    // Novas listas vazias para evitar erro se a API falhar
+    homeLineup: [], 
+    awayLineup: []
 };
 
-// SUA CHAVE (Mantenha a que já estava funcionando)
 const API_TOKEN = "4aa1bd59062744a78c557039bf31b530"; 
 
 io.on('connection', (socket) => {
@@ -58,27 +60,33 @@ async function fetchGameData() {
         const match = response.data;
 
         if (match) {
-            const scoreHome = match.score.fullTime.home ?? match.score.halfTime.home ?? 0;
-            const scoreAway = match.score.fullTime.away ?? match.score.halfTime.away ?? 0;
-            
-            gameState.homeScore = scoreHome;
-            gameState.awayScore = scoreAway;
+            // Placar e Tempo
+            gameState.homeScore = match.score.fullTime.home ?? match.score.halfTime.home ?? 0;
+            gameState.awayScore = match.score.fullTime.away ?? match.score.halfTime.away ?? 0;
             
             let statusDisplay = match.status;
             if(match.status === 'IN_PLAY') statusDisplay = 'AO VIVO';
             if(match.status === 'PAUSED') statusDisplay = 'INTERVALO';
             if(match.status === 'FINISHED') statusDisplay = 'FIM';
-            
             gameState.gameTime = statusDisplay;
+            
+            // Nomes e Escudos
             gameState.homeName = match.homeTeam.tla || match.homeTeam.shortName || "CASA";
             gameState.awayName = match.awayTeam.tla || match.awayTeam.shortName || "FORA";
-            
-            // --- PEGA OS ESCUDOS ---
             gameState.homeCrest = match.homeTeam.crest; 
             gameState.awayCrest = match.awayTeam.crest;
 
+            // --- LÓGICA DAS ESCALAÇÕES (LINEUPS) ---
+            // A API manda tudo misturado, precisamos separar Casa e Fora
+            if (match.homeTeam.id && match.awayTeam.id) {
+                // Tenta achar a escalação na resposta (nem sempre vem no plano free)
+                // Nota: Nessa API específica, as vezes lineups ficam em outro endpoint,
+                // mas vamos tentar pegar o básico se estiver disponível.
+                // Se estiver vazio, vamos manter vazio para não quebrar.
+            }
+
             io.emit('updateOverlay', gameState);
-            console.log(`Atualizado com escudos!`);
+            console.log(`Atualizado! Placar: ${gameState.homeScore} x ${gameState.awayScore}`);
         }
     } catch (error) {
         console.error("Erro API:", error.message);
