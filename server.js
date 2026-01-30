@@ -17,7 +17,7 @@ const BASE_URL = "https://spro.agency/api";
 let gameState = {
     homeName: "CASA", awayName: "FORA",
     homeScore: 0, awayScore: 0,
-    homeCrest: "", awayCrest: "", // Bolt Free não manda crest
+    homeCrest: "", awayCrest: "",
     gameTime: "00:00",
     matchId: null
 };
@@ -48,79 +48,66 @@ setInterval(() => {
     if (gameState.matchId) fetchGameData();
 }, 15000); 
 
-// --- FUNÇÃO AUXILIAR: CONVERTER DATA DA BOLT PARA ISO ---
+// --- FUNÇÃO DE DATA (CORREÇÃO DE FUSO) ---
 function parseBoltDate(dateStr) {
-    // Formato esperado: "2026-01-30, 07:00 PM" ou "2026-01-30, 11:30"
     try {
         if (!dateStr) return new Date();
-        
-        // Remove a vírgula
+        // Remove a vírgula: "2026-01-30, 07:00 PM" -> "2026-01-30 07:00 PM"
         let cleanStr = dateStr.replace(',', ''); 
-        const parts = cleanStr.split(' '); // [Data, Hora, (AM/PM)]
+        const parts = cleanStr.split(' '); 
         
-        let datePart = parts[0]; // YYYY-MM-DD
-        let timePart = parts[1]; // HH:MM
+        let datePart = parts[0]; 
+        let timePart = parts[1]; 
         let meridian = parts.length > 2 ? parts[2] : null;
 
         let [hours, minutes] = timePart.split(':').map(Number);
 
-        // Ajuste 12h -> 24h
         if (meridian === 'PM' && hours < 12) hours += 12;
         if (meridian === 'AM' && hours === 12) hours = 0;
 
-        // Cria a data em UTC (Zulu Time)
-        // String ISO: "2026-01-30T19:00:00.000Z"
+        // Cria data UTC
         const isoString = `${datePart}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000Z`;
-        
         return new Date(isoString);
     } catch (e) {
-        console.error("Erro ao converter data:", dateStr, e.message);
-        return new Date(); // Fallback para agora
+        return new Date();
     }
 }
 
-// --- 1. BUSCAR LISTA FILTRADA ---
+// --- BUSCAR LISTA ---
 async function listMatches() {
     try {
         console.log("Buscando lista...");
         const response = await axios.get(`${BASE_URL}/get_games`, { params: { key: API_KEY } });
 
         let data = response.data;
-        if (data && typeof data === 'object' && !Array.isArray(data)) {
-            data = Object.values(data);
-        }
+        if (data && typeof data === 'object' && !Array.isArray(data)) data = Object.values(data);
         if (!Array.isArray(data)) return [];
 
-        // Filtra DATA DE HOJE (Fuso Brasil -3)
         const now = new Date();
-        // Ajustamos "agora" para data string local simples para comparar
         const todayStr = now.toISOString().split('T')[0]; 
 
-        // --- FILTRO DE ESPORTES (LISTA NEGRA) ---
+        // --- FILTRO DE ESPORTES ---
         const forbiddenSports = [
             'ncaab', 'ncaa', 'basketball', 'nba', 'euroleague', 
             'call of duty', 'league of legends', 'valorant', 'esports',
             'ufc', 'boxing', 'mma', 'fighting',
             'nhl', 'hockey', 'nfl', 'football', 'american football',
-            'volleyball', 'tennis', 'handball'
+            'volleyball', 'tennis', 'handball', 'cricket', 'rugby'
         ];
 
         const validMatches = data.filter(m => {
             const sport = (m.sport || "").toLowerCase();
             const isForbidden = forbiddenSports.some(bad => sport.includes(bad));
             if (isForbidden) return false;
-
-            // Verifica se a data da API bate com hoje (Comparação de String simples para garantir)
+            
+            // Filtro de Data: Deve começar com a data de hoje (YYYY-MM-DD)
             return m.when && m.when.startsWith(todayStr);
         });
 
-        console.log(`Jogos de Futebol hoje: ${validMatches.length}`);
         matchesCache = validMatches;
 
         return validMatches.map(event => {
             let home = "Casa", away = "Fora";
-            
-            // Lógica de nomes
             if (event.orig_teams && event.orig_teams.includes(' vs ')) {
                 const parts = event.orig_teams.split(' vs ');
                 home = parts[0].trim(); away = parts[1].trim();
@@ -129,13 +116,11 @@ async function listMatches() {
                 home = parts[0].trim(); away = parts[1].split(',')[0].trim();
             }
 
-            // AQUI O SEGREDO: Convertemos a data estranha da Bolt para um Objeto Date real
             const realDateObj = parseBoltDate(event.when);
 
             return {
                 id: event.universal_id || event.id,
-                // Enviamos o objeto ISO string correto para o front
-                utcDate: realDateObj.toISOString(),
+                utcDate: realDateObj.toISOString(), // Manda ISO limpo
                 competition: { name: event.sport || "Futebol" },
                 homeTeam: { shortName: home },
                 awayTeam: { shortName: away }
@@ -148,7 +133,7 @@ async function listMatches() {
     }
 }
 
-// --- 2. DADOS DO JOGO ---
+// --- DADOS DO JOGO ---
 async function fetchGameData(forceUpdate = false) {
     if (!gameState.matchId) return;
 
@@ -176,11 +161,7 @@ async function fetchGameData(forceUpdate = false) {
                 }
             }
             
-            // A API Free não manda escudos (crest). 
-            // Resetamos para vazio para não mostrar escudo errado do jogo anterior.
-            gameState.homeCrest = "";
-            gameState.awayCrest = "";
-
+            gameState.homeCrest = ""; gameState.awayCrest = ""; // Sem escudos na Free
             gameState.gameTime = match.status || "AO VIVO"; 
             io.emit('updateOverlay', gameState);
         }
