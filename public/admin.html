@@ -2,57 +2,144 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Admin - Automático</title>
+    <title>Painel de Controle - Futebol</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #eee; }
-        .card { background: white; padding: 20px; border-radius: 8px; max-width: 500px; margin: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        input { width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; }
-        button { width: 100%; padding: 15px; background: #28a745; color: white; border: none; font-size: 16px; cursor: pointer; }
-        button.manual { background: #6c757d; margin-top: 10px; }
-        h2 { text-align: center; }
-        .status { text-align: center; font-weight: bold; margin-bottom: 10px; color: #555; }
+        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background: #f4f7f6; color: #333; }
+        .container { max-width: 900px; margin: auto; }
+        
+        h2 { text-align: center; color: #2c3e50; }
+        
+        /* Botão Principal */
+        .btn-search { 
+            width: 100%; padding: 20px; background: #2980b9; color: white; 
+            border: none; font-size: 18px; cursor: pointer; border-radius: 8px; 
+            font-weight: bold; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 10px;
+        }
+        .btn-search:hover { background: #3498db; }
+
+        /* Grid de Cards */
+        .games-grid {
+            display: flex;
+            flex-wrap: wrap; /* Permite quebrar linha */
+            gap: 15px;
+            margin-top: 25px;
+            justify-content: center;
+        }
+
+        /* Estilo do Card */
+        .game-card {
+            background: white;
+            width: 250px; /* Largura fixa do card */
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border: 2px solid transparent;
+            transition: transform 0.2s;
+            cursor: pointer;
+        }
+        .game-card:hover { transform: translateY(-5px); border-color: #2980b9; }
+
+        .league-name { font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: bold; margin-bottom: 10px; }
+        
+        .teams-row { display: flex; justify-content: space-between; width: 100%; align-items: center; margin-bottom: 15px; }
+        .team-info { display: flex; flex-direction: column; align-items: center; width: 45%; text-align: center; }
+        .team-logo { width: 40px; height: 40px; object-fit: contain; margin-bottom: 5px; }
+        .team-name { font-size: 13px; font-weight: 700; line-height: 1.2; }
+        .vs { font-size: 12px; color: #aaa; font-weight: bold; }
+
+        .card-footer { width: 100%; border-top: 1px solid #eee; padding-top: 10px; text-align: center; }
+        .match-time { font-size: 14px; font-weight: bold; color: #2c3e50; }
+        .btn-select { background: #27ae60; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-size: 13px; margin-top: 5px; width: 100%; }
+        .btn-select:hover { background: #219150; }
+
+        .loading { text-align: center; margin-top: 20px; font-style: italic; color: #666; display: none; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h2>Automação de Jogo</h2>
-        <div class="status">Modo: <span id="modoApi">Manual</span></div>
+    <div class="container">
+        <h2>🎛️ Central de Transmissão</h2>
 
-        <label>ID da Partida (API-Football)</label>
-        <input type="number" id="matchId" placeholder="Ex: 718243">
-        <button onclick="startTracking()">INICIAR RASTREIO AUTOMÁTICO</button>
+        <button class="btn-search" onclick="searchMatches()">
+            🔍 BUSCAR JOGOS DE HOJE
+        </button>
+        
+        <div id="loadingMsg" class="loading">Consultando a API...</div>
 
-        <hr style="margin: 20px 0;">
+        <div class="games-grid" id="gamesContainer"></div>
 
-        <h3>Controle Manual (Emergência)</h3>
-        <input type="text" id="homeName" placeholder="Time Casa">
-        <input type="number" id="homeScore" placeholder="Gols Casa">
-        <button class="manual" onclick="updateManual()">Forçar Atualização</button>
+        <hr style="margin: 40px 0; border-top: 1px solid #ddd;">
+        
+        <div style="text-align: center; font-size: 12px; color: #999;">
+            Não achou o jogo? <br>
+            <input type="number" id="manualId" placeholder="ID Manual" style="padding: 5px; border:1px solid #ccc; border-radius:4px;">
+            <button onclick="trackManual()" style="padding: 5px 10px; background:#7f8c8d; color:white; border:none; border-radius:4px;">Ir</button>
+        </div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
 
-        function startTracking() {
-            const id = document.getElementById('matchId').value;
-            if (id) {
+        function searchMatches() {
+            document.getElementById('loadingMsg').style.display = 'block';
+            document.getElementById('gamesContainer').innerHTML = ''; // Limpa anterior
+            socket.emit('searchMatches');
+        }
+
+        // Recebe a lista do servidor e cria os cards
+        socket.on('matchesFound', (matches) => {
+            document.getElementById('loadingMsg').style.display = 'none';
+            const container = document.getElementById('gamesContainer');
+
+            if (matches.length === 0) {
+                container.innerHTML = '<p>Nenhum jogo encontrado para hoje nas ligas gratuitas.</p>';
+                return;
+            }
+
+            matches.forEach(match => {
+                // Formata hora (vem em UTC, converte pro navegador do usuário)
+                const date = new Date(match.utcDate);
+                const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+                // Cria o HTML do Card
+                const card = document.createElement('div');
+                card.className = 'game-card';
+                card.innerHTML = `
+                    <div class="league-name">${match.competition.name}</div>
+                    <div class="teams-row">
+                        <div class="team-info">
+                            <img src="${match.homeTeam.crest}" class="team-logo">
+                            <span class="team-name">${match.homeTeam.shortName || 'Casa'}</span>
+                        </div>
+                        <span class="vs">X</span>
+                        <div class="team-info">
+                            <img src="${match.awayTeam.crest}" class="team-logo">
+                            <span class="team-name">${match.awayTeam.shortName || 'Fora'}</span>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <div class="match-time">🕒 ${timeStr}</div>
+                        <button class="btn-select" onclick="selectGame(${match.id})">TRANSMITIR</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        });
+
+        function selectGame(id) {
+            if(confirm('Deseja iniciar a transmissão deste jogo?')) {
                 socket.emit('trackMatch', id);
-                document.getElementById('modoApi').innerText = "Buscando dados na API...";
-                document.getElementById('modoApi').style.color = "green";
-                alert("O servidor vai buscar atualizações a cada 15 segundos.");
+                alert(`Conectado ao jogo ID: ${id}. Verifique o Overlay!`);
             }
         }
 
-        function updateManual() {
-            // Código manual igual ao anterior...
-             const data = {
-                homeName: document.getElementById('homeName').value,
-                homeScore: document.getElementById('homeScore').value
-            };
-            socket.emit('updateGame', data);
+        function trackManual() {
+            const id = document.getElementById('manualId').value;
+            if(id) selectGame(id);
         }
     </script>
 </body>
 </html>
-
