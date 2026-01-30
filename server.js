@@ -10,16 +10,17 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Estado do Jogo
+// Estado do Jogo (Agora com CREST = Escudo)
 let gameState = {
     homeName: "Aguardando...", awayName: "Aguardando...",
     homeScore: 0, awayScore: 0,
+    homeCrest: "", awayCrest: "", // <--- Novo campo para imagem
     homeColor: "#ff0000", awayColor: "#0000ff",
     gameTime: "00:00",
     matchId: null
 };
 
-// SUA CHAVE DIRETO NO CÓDIGO (Para teste)
+// SUA CHAVE (Mantenha a que já estava funcionando)
 const API_TOKEN = "4aa1bd59062744a78c557039bf31b530"; 
 
 io.on('connection', (socket) => {
@@ -37,7 +38,6 @@ io.on('connection', (socket) => {
     });
 });
 
-// Busca a cada 15 segundos
 setInterval(() => {
     if (gameState.matchId) {
         fetchGameData();
@@ -48,14 +48,10 @@ async function fetchGameData() {
     if (!gameState.matchId) return;
 
     try {
-        console.log(`Tentando buscar dados do jogo ${gameState.matchId} usando a chave iniciando em ${API_TOKEN.substring(0,4)}...`);
-        
         const options = {
             method: 'GET',
             url: `https://api.football-data.org/v4/matches/${gameState.matchId}`,
-            headers: {
-                'X-Auth-Token': API_TOKEN.trim() // .trim() remove espaços invisíveis
-            }
+            headers: { 'X-Auth-Token': API_TOKEN.trim() }
         };
 
         const response = await axios.request(options);
@@ -76,18 +72,16 @@ async function fetchGameData() {
             gameState.gameTime = statusDisplay;
             gameState.homeName = match.homeTeam.tla || match.homeTeam.shortName || "CASA";
             gameState.awayName = match.awayTeam.tla || match.awayTeam.shortName || "FORA";
+            
+            // --- PEGA OS ESCUDOS ---
+            gameState.homeCrest = match.homeTeam.crest; 
+            gameState.awayCrest = match.awayTeam.crest;
 
             io.emit('updateOverlay', gameState);
-            console.log(`SUCESSO! Placar atualizado: ${scoreHome} x ${scoreAway}`);
+            console.log(`Atualizado com escudos!`);
         }
     } catch (error) {
-        // AQUI ESTÁ O SEGREDO DO DIAGNÓSTICO
-        if (error.response) {
-            console.error("ERRO DA API (Detalhado):", error.response.status, error.response.statusText);
-            console.error("Mensagem da API:", JSON.stringify(error.response.data));
-        } else {
-            console.error("Erro de conexão:", error.message);
-        }
+        console.error("Erro API:", error.message);
     }
 }
 
