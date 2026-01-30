@@ -14,23 +14,25 @@ app.use(express.static(path.join(__dirname, 'public')));
 const API_KEY = "78cfaff5-5122-4990-9112-5dc1d12a6179";
 const BASE_URL = "https://spro.agency/api";
 
-// Estado do Jogo
 let gameState = {
     homeName: "CASA", awayName: "FORA",
     homeScore: 0, awayScore: 0,
     homeCrest: "", awayCrest: "",
     gameTime: "00:00",
     matchId: null,
-    events: [] 
+    events: []
 };
+
+// Cache simples da lista de jogos para não buscar na API toda hora
+let matchesCache = [];
 
 io.on('connection', (socket) => {
     socket.emit('updateOverlay', gameState);
 
     socket.on('trackMatch', (id) => {
-        console.log("Rastreando ID:", id);
+        console.log("--> COMANDO RECEBIDO: Rastrear ID", id);
         gameState.matchId = id;
-        fetchGameData();
+        fetchGameData(true); // Força busca imediata
     });
 
     socket.on('searchMatches', async () => {
@@ -48,72 +50,50 @@ setInterval(() => {
     if (gameState.matchId) fetchGameData();
 }, 15000); 
 
-// --- 1. BUSCAR LISTA DE JOGOS (CORRIGIDO) ---
 async function listMatches() {
     try {
-        console.log("Buscando lista na Bolt Odds...");
+        console.log("Buscando lista na API...");
         const response = await axios.get(`${BASE_URL}/get_games`, {
             params: { key: API_KEY }
         });
 
         let data = response.data;
-
-        // --- CORREÇÃO PRINCIPAL: Converter Objeto em Array ---
-        // A API retorna um objeto onde as chaves são nomes de jogos. 
-        // Precisamos extrair apenas os valores para virar uma lista.
+        // Converte objeto gigante em lista
         if (data && typeof data === 'object' && !Array.isArray(data)) {
             data = Object.values(data);
         }
 
-        if (!Array.isArray(data)) {
-            console.log("Formato inesperado:", typeof data);
-            return [];
-        }
+        if (!Array.isArray(data)) return [];
         
-        // Filtra para pegar apenas Futebol
-        // Remove UFC, Boxing, Basquete (NCAAB), etc.
-        const soccerMatches = data.filter(m => {
-            const sport = (m.sport || "").toLowerCase();
-            return !sport.includes('ufc') && 
-                   !sport.includes('boxing') && 
-                   !sport.includes('ncaab') &&
-                   !sport.includes('nfl');
-        });
+        matchesCache = data; // Salva no cache
 
-        console.log(`Jogos de futebol encontrados: ${soccerMatches.length}`);
-
-        return soccerMatches.map(event => {
-            // "Hamburg vs Bayern Munchen" -> separa os nomes
+        // Prepara os dados para o Admin
+        return data.map(event => {
             let home = "Casa";
             let away = "Fora";
             
-            // Tenta pegar os nomes do campo orig_teams que é mais limpo
+            // Lógica robusta para separar nomes (Funciona pra Futebol e NBA)
             if (event.orig_teams && event.orig_teams.includes(' vs ')) {
                 const parts = event.orig_teams.split(' vs ');
                 home = parts[0].trim();
                 away = parts[1].trim();
             } else if (event.game && event.game.includes(' vs ')) {
-                // Fallback para o nome do jogo
                 const parts = event.game.split(' vs ');
                 home = parts[0].trim();
-                // O nome do away as vezes vem sujo com a data, mas no overlay corrigimos
-                away = parts[1].split(',')[0].trim(); 
+                // Limpa sujeira de data no nome do time away
+                if(parts[1].includes(',')) {
+                    away = parts[1].split(',')[0].trim();
+                } else {
+                    away = parts[1].trim();
+                }
             }
-
-            // Tratamento da data para não quebrar o frontend
-            // A API manda "2026-01-31, 12:30 PM". Vamos tentar converter pra formato padrão.
-            let cleanDate = event.when;
-            try {
-                // Substitui a vírgula para facilitar pro Date()
-                cleanDate = event.when.replace(',', ''); 
-            } catch(e) {}
 
             return {
                 id: event.universal_id || event.id, 
-                utcDate: cleanDate, // Envia a string original ou limpa
-                competition: { name: event.sport || "Futebol" },
-                homeTeam: { shortName: home, crest: "" },
-                awayTeam: { shortName: away, crest: "" }
+                utcDate: event.when, 
+                competition: { name: event.sport || "Esporte" },
+                homeTeam: { shortName: home },
+                awayTeam: { shortName: away }
             };
         });
 
@@ -123,46 +103,57 @@ async function listMatches() {
     }
 }
 
-// --- 2. BUSCAR DADOS DO JOGO ---
-async function fetchGameData() {
+async function fetchGameData(forceUpdate = false) {
     if (!gameState.matchId) return;
 
+    // Se tivermos cache recente e não for update forçado, usamos o cache
+    // Mas a cada 15s o setInterval roda, então idealmente buscamos fresco se for Live
+    
     try {
-        const response = await axios.get(`${BASE_URL}/get_games`, {
-            params: { key: API_KEY }
-        });
-
-        let data = response.data;
-        if (data && typeof data === 'object' && !Array.isArray(data)) {
-            data = Object.values(data);
+        // Se a lista estiver vazia, busca de novo
+        let data = matchesCache;
+        if (forceUpdate || data.length === 0) {
+             const response = await axios.get(`${BASE_URL}/get_games`, {
+                params: { key: API_KEY }
+            });
+            let rawData = response.data;
+            if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+                data = Object.values(rawData);
+            }
+            matchesCache = data;
         }
 
+        // Procura o jogo na lista
         const match = data.find(m => 
             String(m.id) === String(gameState.matchId) || 
             String(m.universal_id) === String(gameState.matchId)
         );
 
         if (match) {
+            console.log(`Jogo Encontrado: ${match.orig_teams || match.game}`);
+            
+            // Atualiza Nomes
             if (match.orig_teams && match.orig_teams.includes(' vs ')) {
                 const parts = match.orig_teams.split(' vs ');
                 gameState.homeName = parts[0].trim();
                 gameState.awayName = parts[1].trim();
             }
 
-            // Jogos futuros não tem placar na lista 'get_games'
-            // Mas se tiver, tentamos ler
+            // Atualiza Placar (Lógica genérica para tentar achar score)
+            // Nota: No plano Free Bolt, o score nem sempre vem na lista 'get_games' para jogos agendados
             if (match.score) {
-                const parts = match.score.split('-');
+                const parts = String(match.score).split('-');
                 if(parts.length >= 2) {
                     gameState.homeScore = parts[0].trim();
                     gameState.awayScore = parts[1].trim();
                 }
             }
             
-            gameState.gameTime = "AGENDADO"; // Bolt Free não manda tempo real preciso aqui
+            gameState.gameTime = match.status || "AO VIVO";
 
             io.emit('updateOverlay', gameState);
-            console.log(`Jogo Atualizado: ${gameState.homeName} x ${gameState.awayName}`);
+        } else {
+            console.log("Jogo não encontrado na lista atual (pode ter acabado ou ID mudou)");
         }
     } catch (error) {
         console.error("Erro Jogo:", error.message);
