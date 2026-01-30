@@ -10,41 +10,75 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Estado do Jogo Completo
+// Estado do Jogo
 let gameState = {
     homeName: "CASA", awayName: "FORA",
     homeScore: 0, awayScore: 0,
     homeCrest: "", awayCrest: "",
-    homeColor: "#c8102e", awayColor: "#003090", // Cores padrao
+    homeColor: "#c8102e", awayColor: "#003090",
     gameTime: "00:00",
     matchId: null,
-    homeLineup: [], // Lista de titulares casa
-    awayLineup: [], // Lista de titulares fora
-    events: []      // Lista de eventos (gols, cartoes)
+    homeLineup: [], 
+    awayLineup: [],
+    events: []
 };
 
 // SUA CHAVE
 const API_TOKEN = "4aa1bd59062744a78c557039bf31b530"; 
 
 io.on('connection', (socket) => {
+    // Envia estado atual ao conectar
     socket.emit('updateOverlay', gameState);
 
+    // 1. Rastrear um jogo específico
     socket.on('trackMatch', (id) => {
         console.log("Rastreando jogo ID:", id);
         gameState.matchId = id;
         fetchGameData();
     });
 
+    // 2. Buscar jogos do dia (NOVO)
+    socket.on('searchMatches', async () => {
+        console.log("Buscando jogos de hoje...");
+        const matches = await listMatches();
+        socket.emit('matchesFound', matches);
+    });
+
+    // 3. Atualização Manual
     socket.on('updateGame', (data) => {
         gameState = { ...gameState, ...data };
         io.emit('updateOverlay', gameState);
     });
 });
 
+// Loop de atualização (15s)
 setInterval(() => {
     if (gameState.matchId) fetchGameData();
 }, 15000);
 
+// --- FUNÇÃO DE BUSCAR JOGOS DO DIA ---
+async function listMatches() {
+    try {
+        // Pega data de hoje (YYYY-MM-DD)
+        const today = new Date().toISOString().split('T')[0];
+        
+        const options = {
+            method: 'GET',
+            // Busca jogos de hoje para as principais ligas
+            url: `https://api.football-data.org/v4/matches?dateFrom=${today}&dateTo=${today}`,
+            headers: { 'X-Auth-Token': API_TOKEN.trim() }
+        };
+
+        const response = await axios.request(options);
+        // Filtra apenas jogos agendados ou rolando
+        return response.data.matches || [];
+    } catch (error) {
+        console.error("Erro ao listar jogos:", error.message);
+        return [];
+    }
+}
+
+// --- FUNÇÃO DE DADOS DO JOGO ---
 async function fetchGameData() {
     if (!gameState.matchId) return;
 
@@ -59,76 +93,54 @@ async function fetchGameData() {
         const match = response.data;
 
         if (match) {
-            // 1. Placar e Tempo
+            // Placar
             gameState.homeScore = match.score.fullTime.home ?? match.score.halfTime.home ?? 0;
             gameState.awayScore = match.score.fullTime.away ?? match.score.halfTime.away ?? 0;
             
+            // Status
             let status = match.status;
             if(status === 'IN_PLAY') status = 'AO VIVO';
             if(status === 'PAUSED') status = 'INTERVALO';
             if(status === 'FINISHED') status = 'FIM';
             gameState.gameTime = status;
 
-            // 2. Informações dos Times
+            // Times
             gameState.homeName = match.homeTeam.tla || match.homeTeam.shortName;
             gameState.awayName = match.awayTeam.tla || match.awayTeam.shortName;
             gameState.homeCrest = match.homeTeam.crest;
             gameState.awayCrest = match.awayTeam.crest;
 
-            // 3. PROCESSAMENTO DE ESCALAÇÃO (LINEUP)
-            // Se vier vazio da API, enviamos array vazio []
+            // Escalações
             gameState.homeLineup = [];
             gameState.awayLineup = [];
-            
-            if (match.homeTeam.lineup && match.homeTeam.lineup.length > 0) {
-                gameState.homeLineup = match.homeTeam.lineup.map(player => {
-                    return { number: player.shirtNumber, name: player.name };
-                });
+            if (match.homeTeam.lineup) {
+                gameState.homeLineup = match.homeTeam.lineup.map(p => ({ number: p.shirtNumber, name: p.name }));
             }
-            
-            if (match.awayTeam.lineup && match.awayTeam.lineup.length > 0) {
-                gameState.awayLineup = match.awayTeam.lineup.map(player => {
-                    return { number: player.shirtNumber, name: player.name };
-                });
+            if (match.awayTeam.lineup) {
+                gameState.awayLineup = match.awayTeam.lineup.map(p => ({ number: p.shirtNumber, name: p.name }));
             }
 
-            // 4. PROCESSAMENTO DE EVENTOS (GOLS E CARTÕES)
+            // Eventos
             let rawEvents = [];
-
-            // Pega Gols
             if(match.goals) {
-                match.goals.forEach(goal => {
-                    rawEvents.push({
-                        minute: goal.minute,
-                        type: 'goal',
-                        text: `⚽ ${goal.scorer.name} (${goal.minute}')`,
-                        teamId: goal.team.id
-                    });
-                });
+                match.goals.forEach(g => rawEvents.push({ 
+                    minute: g.minute, type: 'goal', text: `⚽ ${g.scorer.name} (${g.minute}')` 
+                }));
             }
-
-            // Pega Cartões (Se disponível no endpoint)
             if(match.bookings) {
-                match.bookings.forEach(card => {
-                    const icon = card.card === 'RED' ? '🟥' : '🟨';
-                    rawEvents.push({
-                        minute: card.minute,
-                        type: 'card',
-                        text: `${icon} ${card.player.name} (${card.minute}')`,
-                        teamId: card.team.id
-                    });
+                match.bookings.forEach(c => {
+                    const icon = c.card === 'RED' ? '🟥' : '🟨';
+                    rawEvents.push({ minute: c.minute, type: 'card', text: `${icon} ${c.player.name} (${c.minute}')` });
                 });
             }
-
-            // Ordena do mais recente para o mais antigo e pega os últimos 5
             rawEvents.sort((a, b) => b.minute - a.minute);
-            gameState.events = rawEvents.slice(0, 5); // Apenas os top 5
+            gameState.events = rawEvents.slice(0, 5);
 
             io.emit('updateOverlay', gameState);
-            console.log(`Dados atualizados. Eventos: ${gameState.events.length}`);
+            console.log(`Jogo ${gameState.matchId} atualizado.`);
         }
     } catch (error) {
-        console.error("Erro API:", error.message);
+        console.error("Erro API Jogo:", error.message);
     }
 }
 
