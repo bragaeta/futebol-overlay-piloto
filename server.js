@@ -18,10 +18,6 @@ app.get('/', (req, res) => {
 const API_KEY = process.env.API_KEY || "78cfaff5-5122-4990-9112-5dc1d12a6179";
 const BASE_URL = "https://spro.agency/api";
 
-// AJUSTE MANUAL DE HORAS: Se estiver errado, mude este valor.
-// Ex: Se o jogo é 19:00 e mostra 16:00, coloque 3. Se mostra 22:00, coloque -3.
-const FIX_HORA = -5; 
-
 let gameState = {
     homeName: "CASA", awayName: "FORA",
     homeScore: 0, awayScore: 0,
@@ -56,11 +52,11 @@ setInterval(() => {
     if (gameState.matchId) fetchGameData();
 }, 15000); 
 
-// --- FUNÇÃO DE DATA (UTC PADRÃO + AJUSTE) ---
+// --- FUNÇÃO DE DATA (CORREÇÃO DE +5 HORAS) ---
 function parseBoltDate(dateStr) {
     try {
         if (!dateStr) return new Date();
-        // Limpeza: "2026-01-30, 07:00 PM" -> "2026-01-30 07:00 PM"
+        // Limpeza: "2026-01-30, 02:30 PM"
         let cleanStr = dateStr.replace(',', '').trim(); 
         const parts = cleanStr.split(/\s+/); 
         
@@ -72,14 +68,17 @@ function parseBoltDate(dateStr) {
 
         let [hours, minutes] = timePart.split(':').map(Number);
 
-        // Converte 12h -> 24h
+        // 1. Converter formato 12h (AM/PM) para 24h
         if (meridian === 'PM' && hours < 12) hours += 12;
         if (meridian === 'AM' && hours === 12) hours = 0;
 
-        // Aplica o FIX manual (correção de fuso forçada se necessário)
-        hours += FIX_HORA;
+        // 2. CORREÇÃO CRÍTICA:
+        // A API manda horário de NY (EST). Precisamos somar 5 horas para virar UTC Real.
+        // Ex: Jogo 16:30 BR = 19:30 UTC. API manda 14:30 (NY).
+        // 14:30 + 5 = 19:30.
+        hours += 5;
 
-        // Cria string ISO UTC (com Z no final) para o navegador converter pro local dele
+        // Cria string ISO UTC (com Z no final)
         const isoString = `${datePart}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000Z`;
         
         return new Date(isoString);
@@ -99,20 +98,19 @@ async function listMatches() {
         if (!Array.isArray(data)) return [];
 
         const now = new Date();
-        // Data de "Hoje" baseada no servidor
+        // Ajuste para garantir que pegamos jogos do dia correto
         const todayStr = now.toISOString().split('T')[0];
 
-        // --- FILTRO DE ESPORTES MAIS RIGOROSO ---
+        // --- FILTRO RIGOROSO ---
         const forbiddenSports = [
             'ncaab', 'ncaa', 'basketball', 'nba', 'euroleague', 
-            'call of duty', 'cod', 'league of legends', 'lol', 'valorant', 'esports', 'e-sports',
+            'call of duty', 'cod', 'league of legends', 'lol', 'valorant', 'esports', 'e-sports', 'counter-strike', 'cs:go', 'dota',
             'ufc', 'boxing', 'mma', 'fighting',
             'nhl', 'hockey', 'ice hockey', 'nfl', 'football', 'american football',
             'volleyball', 'tennis', 'handball', 'cricket', 'rugby', 'snooker', 'darts'
         ];
 
         const validMatches = data.filter(m => {
-            // Verifica tanto o campo 'sport' quanto o nome da competição
             const sportName = (m.sport || "").toLowerCase();
             const leagueName = (m.league || "").toLowerCase();
             
@@ -122,7 +120,7 @@ async function listMatches() {
             
             if (isForbidden) return false;
             
-            // Filtro de Data (Começa hoje)
+            // Filtro de Data
             return m.when && m.when.startsWith(todayStr);
         });
 
@@ -143,7 +141,7 @@ async function listMatches() {
             return {
                 id: event.universal_id || event.id,
                 utcDate: realDateObj.toISOString(), 
-                competition: { name: event.sport || "Futebol" },
+                competition: { name: event.league || event.sport || "Futebol" }, // Tenta pegar Liga primeiro
                 homeTeam: { shortName: home },
                 awayTeam: { shortName: away }
             };
@@ -186,5 +184,3 @@ async function fetchGameData(forceUpdate = false) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => { console.log(`Rodando na porta ${PORT}`); });
-
-
