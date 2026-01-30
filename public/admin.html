@@ -4,77 +4,71 @@
     <meta charset="UTF-8">
     <title>Painel de Controle - Futebol</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background: #f4f7f6; color: #333; }
-        .container { max-width: 1000px; margin: auto; }
+        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background: #f0f2f5; color: #333; }
+        .container { max-width: 1200px; margin: auto; }
+        h2 { text-align: center; color: #2c3e50; margin-bottom: 20px;}
         
-        h2 { text-align: center; color: #2c3e50; }
-        
-        /* Botão Principal */
         .btn-search { 
-            width: 100%; padding: 20px; background: #2980b9; color: white; 
+            width: 100%; padding: 15px; background: #2980b9; color: white; 
             border: none; font-size: 18px; cursor: pointer; border-radius: 8px; 
-            font-weight: bold; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 10px;
+            font-weight: bold; margin-bottom: 30px;
         }
         .btn-search:hover { background: #3498db; }
 
-        /* Grid de Cards */
-        .games-grid {
-            display: flex;
-            flex-wrap: wrap; 
-            gap: 15px;
-            margin-top: 25px;
-            justify-content: center;
+        /* Seções */
+        .section-title { 
+            font-size: 20px; font-weight: 800; margin: 30px 0 15px 0; 
+            padding-bottom: 10px; border-bottom: 3px solid #ddd; display: flex; align-items: center; gap: 10px;
         }
+        .live-title { color: #e74c3c; border-color: #e74c3c; }
+        .upcoming-title { color: #2980b9; border-color: #2980b9; }
+        .finished-title { color: #7f8c8d; border-color: #7f8c8d; }
 
-        /* Estilo do Card */
+        .games-grid { display: flex; flex-wrap: wrap; gap: 15px; }
+
+        /* Card */
         .game-card {
-            background: white;
-            width: 260px;
-            border-radius: 12px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            border: 2px solid transparent;
-            transition: transform 0.2s;
+            background: white; width: 250px; border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); padding: 15px;
+            display: flex; flex-direction: column; align-items: center;
+            border: 2px solid transparent; transition: 0.2s; position: relative;
         }
-        .game-card:hover { transform: translateY(-5px); border-color: #2980b9; }
-
-        .league-name { font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: bold; margin-bottom: 10px; text-align: center;}
+        .game-card:hover { transform: translateY(-3px); border-color: #ccc; }
         
-        .teams-row { display: flex; justify-content: space-between; width: 100%; align-items: center; margin-bottom: 15px; }
-        .team-info { display: flex; flex-direction: column; align-items: center; width: 45%; text-align: center; }
-        .team-logo { width: 40px; height: 40px; object-fit: contain; margin-bottom: 5px; background: #eee; border-radius: 50%; padding: 5px;}
-        .team-name { font-size: 13px; font-weight: 700; line-height: 1.2; }
-        .vs { font-size: 12px; color: #aaa; font-weight: bold; }
+        /* Destaque para jogo selecionado */
+        .game-card.active { border-color: #27ae60; background: #f0fff4; }
 
+        .league-name { font-size: 10px; color: #888; text-transform: uppercase; font-weight: bold; margin-bottom: 10px; }
+        .teams-row { display: flex; justify-content: space-between; width: 100%; align-items: center; margin-bottom: 10px; }
+        .team-info { width: 45%; text-align: center; font-size: 13px; font-weight: 700; line-height: 1.2; }
+        .vs { font-size: 11px; color: #ccc; }
+        
         .card-footer { width: 100%; border-top: 1px solid #eee; padding-top: 10px; text-align: center; }
-        .match-time { font-size: 14px; font-weight: bold; color: #2c3e50; }
-        .btn-select { background: #27ae60; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-size: 14px; margin-top: 8px; width: 100%; font-weight: bold;}
-        .btn-select:hover { background: #219150; }
-
-        .loading { text-align: center; margin-top: 20px; font-style: italic; color: #666; display: none; }
+        .match-time { font-size: 16px; font-weight: bold; color: #2c3e50; }
+        .btn-select { background: #27ae60; color: white; border: none; padding: 8px; border-radius: 5px; cursor: pointer; width: 100%; margin-top: 5px; font-weight: bold;}
+        
+        .loading { text-align: center; display: none; font-size: 18px; color: #666; }
     </style>
 </head>
 <body>
     <div class="container">
         <h2>🎛️ Central de Transmissão</h2>
+        <button class="btn-search" onclick="searchMatches()">🔍 BUSCAR JOGOS DE HOJE</button>
+        <div id="loadingMsg" class="loading">Consultando API...</div>
 
-        <button class="btn-search" onclick="searchMatches()">
-            🔍 BUSCAR JOGOS DE HOJE
-        </button>
+        <div class="section-title live-title">🔴 AO VIVO AGORA</div>
+        <div class="games-grid" id="liveContainer"><p style="color:#999; margin-left:10px;">Nenhum jogo ao vivo encontrado.</p></div>
+
+        <div class="section-title upcoming-title">⏳ VAI COMEÇAR</div>
+        <div class="games-grid" id="upcomingContainer"></div>
+
+        <div class="section-title finished-title">🏁 ENCERRADOS / DATA PASSADA</div>
+        <div class="games-grid" id="finishedContainer"></div>
         
-        <div id="loadingMsg" class="loading">Consultando a Bolt Odds...</div>
-
-        <div class="games-grid" id="gamesContainer"></div>
-
-        <hr style="margin: 40px 0; border-top: 1px solid #ddd;">
-        
-        <div style="text-align: center; font-size: 12px; color: #999;">
-            ID Manual (Emergência): <br>
-            <input type="text" id="manualId" placeholder="Cole o ID aqui" style="padding: 5px; border:1px solid #ccc; border-radius:4px; width: 200px;">
-            <button onclick="trackManual()" style="padding: 5px 10px; background:#7f8c8d; color:white; border:none; border-radius:4px;">Ir</button>
+        <hr style="margin-top: 50px;">
+        <div style="text-align: center; color: #aaa; font-size: 12px;">
+            ID Manual: <input type="text" id="manualId" style="padding:5px;"> 
+            <button onclick="trackManual()">Ir</button>
         </div>
     </div>
 
@@ -84,60 +78,87 @@
 
         function searchMatches() {
             document.getElementById('loadingMsg').style.display = 'block';
-            document.getElementById('gamesContainer').innerHTML = '';
+            ['liveContainer', 'upcomingContainer', 'finishedContainer'].forEach(id => document.getElementById(id).innerHTML = '');
             socket.emit('searchMatches');
         }
 
         socket.on('matchesFound', (matches) => {
             document.getElementById('loadingMsg').style.display = 'none';
-            const container = document.getElementById('gamesContainer');
-
+            
             if (matches.length === 0) {
-                container.innerHTML = '<p>Nenhum jogo encontrado para hoje.</p>';
+                document.getElementById('upcomingContainer').innerHTML = '<p>Nenhum jogo retornado pela API para hoje.</p>';
                 return;
             }
 
-            matches.forEach(match => {
-                // Tenta limpar a data para mostrar só a hora
-                let timeStr = match.utcDate;
-                try {
-                    if(timeStr.includes(',')) {
-                        timeStr = timeStr.split(',')[1].trim(); // Pega "12:30 PM"
-                    }
-                } catch(e){}
+            const now = new Date();
 
+            matches.forEach(match => {
+                // --- TRATAMENTO DE HORA ---
+                // A API manda "2026-01-30, 07:00 PM"
+                // Vamos converter isso para um objeto Date real
+                let matchDate = new Date(); // Fallback
+                let timeDisplay = "--:--";
+                
+                try {
+                    // Remove a vírgula para ajudar o parser: "2026-01-30 07:00 PM"
+                    // Adicionamos "UTC" ao final porque a API manda em UTC
+                    const dateString = match.utcDate.replace(',', '') + ' UTC';
+                    matchDate = new Date(dateString);
+                    
+                    // Formata para hora local do navegador (Brasil)
+                    timeDisplay = matchDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                } catch(e) {
+                    console.error("Erro data:", e);
+                }
+
+                // --- LÓGICA DE CATEGORIA ---
+                // Calcula diferença em horas
+                const diffHours = (matchDate - now) / (1000 * 60 * 60);
+                
+                let containerId = 'upcomingContainer'; // Padrão
+                
+                if (diffHours < -2.5) {
+                    // Começou há mais de 2.5h -> Encerrado
+                    containerId = 'finishedContainer';
+                } else if (diffHours <= 0 && diffHours >= -2.5) {
+                    // Entre agora e 2.5h atrás -> Ao Vivo
+                    containerId = 'liveContainer';
+                } else {
+                    // Futuro -> Próximos
+                    containerId = 'upcomingContainer';
+                }
+
+                // Cria o Card
                 const card = document.createElement('div');
                 card.className = 'game-card';
-                // AQUI ESTAVA O ERRO: Adicionamos aspas simples '${match.id}'
                 card.innerHTML = `
                     <div class="league-name">${match.competition.name}</div>
                     <div class="teams-row">
-                        <div class="team-info">
-                            <div class="team-name">${match.homeTeam.shortName}</div>
-                        </div>
+                        <div class="team-info"><div class="team-name">${match.homeTeam.shortName}</div></div>
                         <span class="vs">X</span>
-                        <div class="team-info">
-                            <div class="team-name">${match.awayTeam.shortName}</div>
-                        </div>
+                        <div class="team-info"><div class="team-name">${match.awayTeam.shortName}</div></div>
                     </div>
                     <div class="card-footer">
-                        <div class="match-time">🕒 ${timeStr}</div>
+                        <div class="match-time">${timeDisplay}</div>
                         <button class="btn-select" onclick="selectGame('${match.id}')">TRANSMITIR</button>
                     </div>
                 `;
+                
+                // Limpa mensagem de vazio se for o primeiro
+                const container = document.getElementById(containerId);
+                if(container.innerHTML.includes('Nenhum jogo')) container.innerHTML = '';
+                
                 container.appendChild(card);
             });
         });
 
         function selectGame(id) {
-            // Agora o ID chega como String corretamente
-            if(confirm('Iniciar transmissão deste jogo?')) {
-                console.log("Enviando ID:", id);
+            if(confirm('Transmitir este jogo?')) {
                 socket.emit('trackMatch', id);
-                alert(`Conectado! ID: ${id}`);
+                alert('Conectado! Verifique o Overlay.');
             }
         }
-
+        
         function trackManual() {
             const id = document.getElementById('manualId').value;
             if(id) selectGame(id);
