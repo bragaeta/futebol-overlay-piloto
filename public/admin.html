@@ -107,9 +107,13 @@
 
                 let containerId = 'upcomingContainer'; 
 
-                if (diffHours < -3.5) { 
+                // Lógica Ajustada:
+                // Se começou há mais de 2.5 horas -> Encerrado (Futebol dura ~2h)
+                if (diffHours < -2.5) { 
                     containerId = 'finishedContainer';
-                } else if (diffHours <= 0.25) { 
+                } 
+                // Se começou entre agora e 2.5h atrás, OU falta 15min -> Ao Vivo
+                else if (diffHours <= 0.25) { 
                     containerId = 'liveContainer';
                 }
 
