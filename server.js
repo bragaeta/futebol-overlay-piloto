@@ -21,7 +21,7 @@ let gameState = {
     homeCrest: "", awayCrest: "",
     gameTime: "00:00",
     matchId: null,
-    events: [] // Bolt Odds Free dificilmente manda eventos, mas deixamos aqui
+    events: [] 
 };
 
 io.on('connection', (socket) => {
@@ -48,7 +48,7 @@ setInterval(() => {
     if (gameState.matchId) fetchGameData();
 }, 15000); 
 
-// --- 1. BUSCAR LISTA DE JOGOS (Formatada) ---
+// --- 1. BUSCAR LISTA DE JOGOS (CORRIGIDO) ---
 async function listMatches() {
     try {
         console.log("Buscando lista na Bolt Odds...");
@@ -56,32 +56,61 @@ async function listMatches() {
             params: { key: API_KEY }
         });
 
-        // A Bolt retorna uma lista direta. Vamos filtrar e formatar.
-        let data = response.data || [];
-        
-        // Filtra para pegar apenas Futebol (Soccer, Bundesliga, etc)
-        // O log mostrou "sport=Bundesliga", "sport=Ligue 1", etc.
-        // Vamos pegar tudo que não for UFC/Boxing por enquanto
-        data = data.filter(m => 
-            !m.sport.includes('UFC') && 
-            !m.sport.includes('Boxing') &&
-            !m.sport.includes('NCAAB')
-        );
+        let data = response.data;
 
-        return data.map(event => {
+        // --- CORREÇÃO PRINCIPAL: Converter Objeto em Array ---
+        // A API retorna um objeto onde as chaves são nomes de jogos. 
+        // Precisamos extrair apenas os valores para virar uma lista.
+        if (data && typeof data === 'object' && !Array.isArray(data)) {
+            data = Object.values(data);
+        }
+
+        if (!Array.isArray(data)) {
+            console.log("Formato inesperado:", typeof data);
+            return [];
+        }
+        
+        // Filtra para pegar apenas Futebol
+        // Remove UFC, Boxing, Basquete (NCAAB), etc.
+        const soccerMatches = data.filter(m => {
+            const sport = (m.sport || "").toLowerCase();
+            return !sport.includes('ufc') && 
+                   !sport.includes('boxing') && 
+                   !sport.includes('ncaab') &&
+                   !sport.includes('nfl');
+        });
+
+        console.log(`Jogos de futebol encontrados: ${soccerMatches.length}`);
+
+        return soccerMatches.map(event => {
             // "Hamburg vs Bayern Munchen" -> separa os nomes
             let home = "Casa";
             let away = "Fora";
             
+            // Tenta pegar os nomes do campo orig_teams que é mais limpo
             if (event.orig_teams && event.orig_teams.includes(' vs ')) {
                 const parts = event.orig_teams.split(' vs ');
                 home = parts[0].trim();
                 away = parts[1].trim();
+            } else if (event.game && event.game.includes(' vs ')) {
+                // Fallback para o nome do jogo
+                const parts = event.game.split(' vs ');
+                home = parts[0].trim();
+                // O nome do away as vezes vem sujo com a data, mas no overlay corrigimos
+                away = parts[1].split(',')[0].trim(); 
             }
 
+            // Tratamento da data para não quebrar o frontend
+            // A API manda "2026-01-31, 12:30 PM". Vamos tentar converter pra formato padrão.
+            let cleanDate = event.when;
+            try {
+                // Substitui a vírgula para facilitar pro Date()
+                cleanDate = event.when.replace(',', ''); 
+            } catch(e) {}
+
             return {
-                id: event.id || event.universal_id, // Usa o universal_id se não tiver ID numérico
-                utcDate: event.when, // Ex: "2026-01-31, 12:30 PM"
+                id: event.universal_id || event.id, 
+                utcDate: cleanDate, // Envia a string original ou limpa
                 competition: { name: event.sport || "Futebol" },
                 homeTeam: { shortName: home, crest: "" },
                 awayTeam: { shortName: away, crest: "" }
@@ -94,41 +123,35 @@ async function listMatches() {
     }
 }
 
-// --- 2. BUSCAR DADOS DO JOGO (Placar) ---
+// --- 2. BUSCAR DADOS DO JOGO ---
 async function fetchGameData() {
     if (!gameState.matchId) return;
 
     try {
-        // A Bolt não tem endpoint detalhado "por ID" no plano free documentado fácil.
-        // Vamos buscar a lista geral e encontrar nosso jogo nela para ver se o placar atualizou.
-        // (Estratégia: Cachear a lista)
         const response = await axios.get(`${BASE_URL}/get_games`, {
             params: { key: API_KEY }
         });
 
-        const allGames = response.data || [];
-        
-        // Procura o jogo pelo ID que estamos rastreando
-        // Convertemos para string para garantir (universal_id mistura letras e numeros)
-        const match = allGames.find(m => 
+        let data = response.data;
+        if (data && typeof data === 'object' && !Array.isArray(data)) {
+            data = Object.values(data);
+        }
+
+        const match = data.find(m => 
             String(m.id) === String(gameState.matchId) || 
             String(m.universal_id) === String(gameState.matchId)
         );
 
         if (match) {
-            // Separa os nomes de novo para garantir
             if (match.orig_teams && match.orig_teams.includes(' vs ')) {
                 const parts = match.orig_teams.split(' vs ');
                 gameState.homeName = parts[0].trim();
                 gameState.awayName = parts[1].trim();
             }
 
-            // Lógica de Placar da Bolt (Isso varia, vamos tentar achar campos de score)
-            // No log que você mandou, não tinha campo "score" explícito nos jogos agendados.
-            // Mas em jogos AO VIVO, costuma aparecer algo como 'score': '1-0' ou 'home_score': 1
-            
+            // Jogos futuros não tem placar na lista 'get_games'
+            // Mas se tiver, tentamos ler
             if (match.score) {
-                // Se vier "2-1" ou "2 - 1"
                 const parts = match.score.split('-');
                 if(parts.length >= 2) {
                     gameState.homeScore = parts[0].trim();
@@ -136,11 +159,10 @@ async function fetchGameData() {
                 }
             }
             
-            // Se o jogo tiver data futura, colocamos 0x0
-            gameState.gameTime = match.status || "JOGO"; // Status pode vir vazio no free
+            gameState.gameTime = "AGENDADO"; // Bolt Free não manda tempo real preciso aqui
 
             io.emit('updateOverlay', gameState);
-            console.log(`Jogo atualizado: ${gameState.homeName} x ${gameState.awayName}`);
+            console.log(`Jogo Atualizado: ${gameState.homeName} x ${gameState.awayName}`);
         }
     } catch (error) {
         console.error("Erro Jogo:", error.message);
