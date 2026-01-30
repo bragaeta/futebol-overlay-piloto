@@ -10,137 +10,126 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// --- CONFIGURAÇÃO DA BOLT ODDS ---
+const API_KEY = "78cfaff5-5122-4990-9112-5dc1d12a6179";
+const BASE_URL = "https://spro.agency/api";
+const ENDPOINT_MATCHES = "get_games"; // <--- CORRIGIDO COM SUA DESCOBERTA
+
 // Estado do Jogo
 let gameState = {
     homeName: "CASA", awayName: "FORA",
     homeScore: 0, awayScore: 0,
     homeCrest: "", awayCrest: "",
-    homeColor: "#c8102e", awayColor: "#003090",
     gameTime: "00:00",
     matchId: null,
-    homeLineup: [], 
-    awayLineup: [],
     events: []
 };
 
-// SUA CHAVE
-const API_TOKEN = "4aa1bd59062744a78c557039bf31b530"; 
-
 io.on('connection', (socket) => {
-    // Envia estado atual ao conectar
     socket.emit('updateOverlay', gameState);
 
-    // 1. Rastrear um jogo específico
     socket.on('trackMatch', (id) => {
-        console.log("Rastreando jogo ID:", id);
+        console.log("Rastreando ID Bolt:", id);
         gameState.matchId = id;
         fetchGameData();
     });
 
-    // 2. Buscar jogos do dia (NOVO)
     socket.on('searchMatches', async () => {
-        console.log("Buscando jogos de hoje...");
         const matches = await listMatches();
         socket.emit('matchesFound', matches);
     });
 
-    // 3. Atualização Manual
     socket.on('updateGame', (data) => {
         gameState = { ...gameState, ...data };
         io.emit('updateOverlay', gameState);
     });
 });
 
-// Loop de atualização (15s)
 setInterval(() => {
     if (gameState.matchId) fetchGameData();
-}, 15000);
+}, 10000); 
 
-// --- FUNÇÃO DE BUSCAR JOGOS DO DIA ---
+// --- BUSCAR LISTA DE JOGOS ---
 async function listMatches() {
     try {
-        // Pega data de hoje (YYYY-MM-DD)
-        const today = new Date().toISOString().split('T')[0];
+        console.log(`Buscando jogos em: ${BASE_URL}/${ENDPOINT_MATCHES}...`);
         
-        const options = {
-            method: 'GET',
-            // Busca jogos de hoje para as principais ligas
-            url: `https://api.football-data.org/v4/matches?dateFrom=${today}&dateTo=${today}`,
-            headers: { 'X-Auth-Token': API_TOKEN.trim() }
-        };
+        const response = await axios.get(`${BASE_URL}/${ENDPOINT_MATCHES}`, {
+            params: { 
+                key: API_KEY,
+                // Algumas APIs pedem filtros extras, se der erro tentamos tirar esses params
+                // sport: 'soccer' 
+            }
+        });
 
-        const response = await axios.request(options);
-        // Filtra apenas jogos agendados ou rolando
-        return response.data.matches || [];
+        // Tenta achar a lista dentro da resposta (pode vir como data, games, ou direto)
+        const data = response.data.data || response.data.games || response.data; 
+        
+        if (!Array.isArray(data)) {
+            console.log("Formato de resposta Bolt diferente do esperado:", typeof data);
+            // Se for um objeto com chaves numéricas, tentamos converter
+            if (typeof data === 'object') return Object.values(data);
+            return [];
+        }
+
+        return data.map(event => ({
+            id: event.game_id || event.id, // Bolt costuma usar game_id
+            utcDate: event.start_time || new Date(),
+            competition: { name: event.league || "Liga Bolt" },
+            homeTeam: { 
+                shortName: event.home_team || event.participants?.[0]?.name || "Casa", 
+                crest: "" 
+            },
+            awayTeam: { 
+                shortName: event.away_team || event.participants?.[1]?.name || "Fora", 
+                crest: "" 
+            }
+        }));
+
     } catch (error) {
-        console.error("Erro ao listar jogos:", error.message);
+        console.error("Erro Bolt (Lista):", error.message);
         return [];
     }
 }
 
-// --- FUNÇÃO DE DADOS DO JOGO ---
+// --- BUSCAR DETALHES DO JOGO ---
 async function fetchGameData() {
     if (!gameState.matchId) return;
 
     try {
-        const options = {
-            method: 'GET',
-            url: `https://api.football-data.org/v4/matches/${gameState.matchId}`,
-            headers: { 'X-Auth-Token': API_TOKEN.trim() }
-        };
+        // Geralmente usa o mesmo endpoint, mas vamos filtrar na mão se a API não tiver busca por ID
+        // (Solução temporária segura)
+        const response = await axios.get(`${BASE_URL}/${ENDPOINT_MATCHES}`, {
+            params: { key: API_KEY }
+        });
 
-        const response = await axios.request(options);
-        const match = response.data;
+        const data = response.data.data || response.data.games || response.data;
+        const matches = Array.isArray(data) ? data : Object.values(data);
+        
+        // Encontra o jogo certo na lista
+        // Nota: convertemos para String para garantir que compare texto com texto
+        const match = matches.find(m => String(m.game_id || m.id) === String(gameState.matchId));
 
         if (match) {
-            // Placar
-            gameState.homeScore = match.score.fullTime.home ?? match.score.halfTime.home ?? 0;
-            gameState.awayScore = match.score.fullTime.away ?? match.score.halfTime.away ?? 0;
+            gameState.homeName = match.home_team || match.participants?.[0]?.name || "Casa";
+            gameState.awayName = match.away_team || match.participants?.[1]?.name || "Fora";
             
-            // Status
-            let status = match.status;
-            if(status === 'IN_PLAY') status = 'AO VIVO';
-            if(status === 'PAUSED') status = 'INTERVALO';
-            if(status === 'FINISHED') status = 'FIM';
-            gameState.gameTime = status;
-
-            // Times
-            gameState.homeName = match.homeTeam.tla || match.homeTeam.shortName;
-            gameState.awayName = match.awayTeam.tla || match.awayTeam.shortName;
-            gameState.homeCrest = match.homeTeam.crest;
-            gameState.awayCrest = match.awayTeam.crest;
-
-            // Escalações
-            gameState.homeLineup = [];
-            gameState.awayLineup = [];
-            if (match.homeTeam.lineup) {
-                gameState.homeLineup = match.homeTeam.lineup.map(p => ({ number: p.shirtNumber, name: p.name }));
+            // Lógica de Placar da Bolt (Varia, mas vamos tentar o padrão)
+            if (match.score) { 
+                // Ex: "2 - 1"
+                const parts = match.score.split('-'); 
+                if(parts.length >= 2) {
+                    gameState.homeScore = parts[0].trim();
+                    gameState.awayScore = parts[1].trim();
+                }
             }
-            if (match.awayTeam.lineup) {
-                gameState.awayLineup = match.awayTeam.lineup.map(p => ({ number: p.shirtNumber, name: p.name }));
-            }
-
-            // Eventos
-            let rawEvents = [];
-            if(match.goals) {
-                match.goals.forEach(g => rawEvents.push({ 
-                    minute: g.minute, type: 'goal', text: `⚽ ${g.scorer.name} (${g.minute}')` 
-                }));
-            }
-            if(match.bookings) {
-                match.bookings.forEach(c => {
-                    const icon = c.card === 'RED' ? '🟥' : '🟨';
-                    rawEvents.push({ minute: c.minute, type: 'card', text: `${icon} ${c.player.name} (${c.minute}')` });
-                });
-            }
-            rawEvents.sort((a, b) => b.minute - a.minute);
-            gameState.events = rawEvents.slice(0, 5);
-
+            
+            gameState.gameTime = match.status || "AO VIVO";
             io.emit('updateOverlay', gameState);
-            console.log(`Jogo ${gameState.matchId} atualizado.`);
+            console.log(`Bolt Atualizado: ${gameState.homeScore} - ${gameState.awayScore}`);
         }
     } catch (error) {
-        console.error("Erro API Jogo:", error.message);
+        console.error("Erro Bolt (Jogo):", error.message);
     }
 }
 
