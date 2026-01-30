@@ -11,7 +11,7 @@
         .btn-search { 
             width: 100%; padding: 15px; background: #2980b9; color: white; 
             border: none; font-size: 18px; cursor: pointer; border-radius: 8px; 
-            font-weight: bold; margin-bottom: 30px;
+            font-weight: bold; margin-bottom: 30px; display: flex; align-items: center; justify-content: center; gap: 10px;
         }
         .btn-search:hover { background: #3498db; }
 
@@ -35,29 +35,32 @@
         }
         .game-card:hover { transform: translateY(-3px); border-color: #ccc; }
         
-        /* Destaque para jogo selecionado */
-        .game-card.active { border-color: #27ae60; background: #f0fff4; }
-
-        .league-name { font-size: 10px; color: #888; text-transform: uppercase; font-weight: bold; margin-bottom: 10px; }
+        .league-name { font-size: 10px; color: #888; text-transform: uppercase; font-weight: bold; margin-bottom: 10px; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        
         .teams-row { display: flex; justify-content: space-between; width: 100%; align-items: center; margin-bottom: 10px; }
         .team-info { width: 45%; text-align: center; font-size: 13px; font-weight: 700; line-height: 1.2; }
         .vs { font-size: 11px; color: #ccc; }
         
         .card-footer { width: 100%; border-top: 1px solid #eee; padding-top: 10px; text-align: center; }
-        .match-time { font-size: 16px; font-weight: bold; color: #2c3e50; }
-        .btn-select { background: #27ae60; color: white; border: none; padding: 8px; border-radius: 5px; cursor: pointer; width: 100%; margin-top: 5px; font-weight: bold;}
+        .match-time { font-size: 18px; font-weight: bold; color: #2c3e50; }
+        .btn-select { background: #27ae60; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; width: 100%; margin-top: 5px; font-weight: bold;}
+        .btn-select:hover { background: #219150; }
         
-        .loading { text-align: center; display: none; font-size: 18px; color: #666; }
+        .loading { text-align: center; display: none; font-size: 18px; color: #666; margin-top: 20px;}
     </style>
 </head>
 <body>
     <div class="container">
         <h2>🎛️ Central de Transmissão</h2>
-        <button class="btn-search" onclick="searchMatches()">🔍 BUSCAR JOGOS DE HOJE</button>
-        <div id="loadingMsg" class="loading">Consultando API...</div>
+        
+        <button class="btn-search" onclick="searchMatches()">
+            🔍 BUSCAR JOGOS DE HOJE
+        </button>
+        
+        <div id="loadingMsg" class="loading">Consultando a API...</div>
 
         <div class="section-title live-title">🔴 AO VIVO AGORA</div>
-        <div class="games-grid" id="liveContainer"><p style="color:#999; margin-left:10px;">Nenhum jogo ao vivo encontrado.</p></div>
+        <div class="games-grid" id="liveContainer"></div>
 
         <div class="section-title upcoming-title">⏳ VAI COMEÇAR</div>
         <div class="games-grid" id="upcomingContainer"></div>
@@ -66,9 +69,10 @@
         <div class="games-grid" id="finishedContainer"></div>
         
         <hr style="margin-top: 50px;">
-        <div style="text-align: center; color: #aaa; font-size: 12px;">
-            ID Manual: <input type="text" id="manualId" style="padding:5px;"> 
-            <button onclick="trackManual()">Ir</button>
+        <div style="text-align: center; color: #aaa; font-size: 12px; margin-bottom: 30px;">
+            Não achou? Digite o ID Manualmente: 
+            <input type="text" id="manualId" style="padding:5px; border:1px solid #ccc; border-radius: 4px;"> 
+            <button onclick="trackManual()" style="padding: 5px 10px; cursor:pointer;">Ir</button>
         </div>
     </div>
 
@@ -78,61 +82,53 @@
 
         function searchMatches() {
             document.getElementById('loadingMsg').style.display = 'block';
-            ['liveContainer', 'upcomingContainer', 'finishedContainer'].forEach(id => document.getElementById(id).innerHTML = '');
+            ['liveContainer', 'upcomingContainer', 'finishedContainer'].forEach(id => {
+                document.getElementById(id).innerHTML = '';
+            });
             socket.emit('searchMatches');
         }
 
         socket.on('matchesFound', (matches) => {
             document.getElementById('loadingMsg').style.display = 'none';
             
-            if (matches.length === 0) {
-                document.getElementById('upcomingContainer').innerHTML = '<p>Nenhum jogo retornado pela API para hoje.</p>';
+            if (!matches || matches.length === 0) {
+                document.getElementById('upcomingContainer').innerHTML = '<p style="color:#666">Nenhum jogo de futebol encontrado para hoje.</p>';
                 return;
             }
 
             const now = new Date();
 
             matches.forEach(match => {
-                // --- TRATAMENTO DE HORA ---
-                // A API manda "2026-01-30, 07:00 PM"
-                // Vamos converter isso para um objeto Date real
-                let matchDate = new Date(); // Fallback
-                let timeDisplay = "--:--";
+                // --- CORREÇÃO DA DATA ---
+                // O servidor agora manda formato ISO (2026-01-30T19:00:00.000Z).
+                // O navegador entende isso nativamente.
+                const matchDate = new Date(match.utcDate);
                 
-                try {
-                    // Remove a vírgula para ajudar o parser: "2026-01-30 07:00 PM"
-                    // Adicionamos "UTC" ao final porque a API manda em UTC
-                    const dateString = match.utcDate.replace(',', '') + ' UTC';
-                    matchDate = new Date(dateString);
-                    
-                    // Formata para hora local do navegador (Brasil)
-                    timeDisplay = matchDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                } catch(e) {
-                    console.error("Erro data:", e);
-                }
+                // Formata hora para o usuário (Ex: 16:30)
+                const timeDisplay = matchDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-                // --- LÓGICA DE CATEGORIA ---
-                // Calcula diferença em horas
-                const diffHours = (matchDate - now) / (1000 * 60 * 60);
-                
-                let containerId = 'upcomingContainer'; // Padrão
-                
-                if (diffHours < -2.5) {
-                    // Começou há mais de 2.5h -> Encerrado
+                // --- LÓGICA DE SEPARAÇÃO (Prateleiras) ---
+                // Diferença em horas entre Agora e o Jogo
+                const diffMs = matchDate - now;
+                const diffHours = diffMs / (1000 * 60 * 60);
+
+                let containerId = 'upcomingContainer'; // Padrão: Futuro
+
+                if (diffHours < -3) { 
+                    // Se o jogo começou há mais de 3 horas -> Encerrado
                     containerId = 'finishedContainer';
-                } else if (diffHours <= 0 && diffHours >= -2.5) {
-                    // Entre agora e 2.5h atrás -> Ao Vivo
+                } else if (diffHours <= 0 && diffHours >= -3) {
+                    // Se começou há menos de 3h e ainda não "passou" -> Ao Vivo
                     containerId = 'liveContainer';
-                } else {
-                    // Futuro -> Próximos
-                    containerId = 'upcomingContainer';
-                }
+                } 
+                // Se diffHours > 0, é futuro (upcoming)
 
                 // Cria o Card
                 const card = document.createElement('div');
                 card.className = 'game-card';
+                // ASPAS NO ID: Garantimos que o ID (letras/numeros) fique entre aspas simples
                 card.innerHTML = `
-                    <div class="league-name">${match.competition.name}</div>
+                    <div class="league-name" title="${match.competition.name}">${match.competition.name}</div>
                     <div class="teams-row">
                         <div class="team-info"><div class="team-name">${match.homeTeam.shortName}</div></div>
                         <span class="vs">X</span>
@@ -144,18 +140,14 @@
                     </div>
                 `;
                 
-                // Limpa mensagem de vazio se for o primeiro
-                const container = document.getElementById(containerId);
-                if(container.innerHTML.includes('Nenhum jogo')) container.innerHTML = '';
-                
-                container.appendChild(card);
+                document.getElementById(containerId).appendChild(card);
             });
         });
 
         function selectGame(id) {
-            if(confirm('Transmitir este jogo?')) {
+            if(confirm('Deseja transmitir este jogo no Overlay?')) {
                 socket.emit('trackMatch', id);
-                alert('Conectado! Verifique o Overlay.');
+                alert('Comando enviado! Verifique o Overlay.');
             }
         }
         
