@@ -1,160 +1,195 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <title>Painel de Controle - Futebol</title>
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background: #f0f2f5; color: #333; }
-        .container { max-width: 1200px; margin: auto; }
-        h2 { text-align: center; color: #2c3e50; margin-bottom: 20px;}
+const express = require('express');
+const http = require('http');
+const { Server } = require("socket.io");
+const path = require('path');
+const axios = require('axios');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+// --- CONFIGURAÇÃO BOLT ODDS ---
+// Mantenha esta chave segura e não compartilhe publicamente em repositórios abertos
+const API_KEY = "78cfaff5-5122-4990-9112-5dc1d12a6179";
+const BASE_URL = "https://spro.agency/api";
+
+let gameState = {
+    homeName: "CASA", awayName: "FORA",
+    homeScore: 0, awayScore: 0,
+    homeCrest: "", awayCrest: "",
+    gameTime: "00:00",
+    matchId: null
+};
+
+let matchesCache = [];
+
+io.on('connection', (socket) => {
+    socket.emit('updateOverlay', gameState);
+
+    socket.on('trackMatch', (id) => {
+        console.log("Rastreando ID:", id);
+        gameState.matchId = id;
+        fetchGameData(true);
+    });
+
+    socket.on('searchMatches', async () => {
+        const matches = await listMatches();
+        socket.emit('matchesFound', matches);
+    });
+
+    socket.on('updateGame', (data) => {
+        gameState = { ...gameState, ...data };
+        io.emit('updateOverlay', gameState);
+    });
+});
+
+// Loop para atualizar os dados do jogo automaticamente a cada 15s
+setInterval(() => {
+    if (gameState.matchId) fetchGameData();
+}, 15000); 
+
+// --- FUNÇÃO DE DATA (CORRIGIDA) ---
+function parseBoltDate(dateStr) {
+    try {
+        if (!dateStr) return new Date();
         
-        .btn-search { 
-            width: 100%; padding: 15px; background: #2980b9; color: white; 
-            border: none; font-size: 18px; cursor: pointer; border-radius: 8px; 
-            font-weight: bold; margin-bottom: 30px; display: flex; align-items: center; justify-content: center; gap: 10px;
-        }
-        .btn-search:hover { background: #3498db; }
-
-        /* Seções */
-        .section-title { 
-            font-size: 20px; font-weight: 800; margin: 30px 0 15px 0; 
-            padding-bottom: 10px; border-bottom: 3px solid #ddd; display: flex; align-items: center; gap: 10px;
-        }
-        .live-title { color: #e74c3c; border-color: #e74c3c; }
-        .upcoming-title { color: #2980b9; border-color: #2980b9; }
-        .finished-title { color: #7f8c8d; border-color: #7f8c8d; }
-
-        .games-grid { display: flex; flex-wrap: wrap; gap: 15px; }
-
-        /* Card */
-        .game-card {
-            background: white; width: 250px; border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1); padding: 15px;
-            display: flex; flex-direction: column; align-items: center;
-            border: 2px solid transparent; transition: 0.2s; position: relative;
-        }
-        .game-card:hover { transform: translateY(-3px); border-color: #ccc; }
+        // Remove a vírgula: "2026-01-30, 07:00 PM" -> "2026-01-30 07:00 PM"
+        let cleanStr = dateStr.replace(',', '').trim(); 
+        const parts = cleanStr.split(/\s+/); 
         
-        .league-name { font-size: 10px; color: #888; text-transform: uppercase; font-weight: bold; margin-bottom: 10px; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        
-        .teams-row { display: flex; justify-content: space-between; width: 100%; align-items: center; margin-bottom: 10px; }
-        .team-info { width: 45%; text-align: center; font-size: 13px; font-weight: 700; line-height: 1.2; }
-        .vs { font-size: 11px; color: #ccc; }
-        
-        .card-footer { width: 100%; border-top: 1px solid #eee; padding-top: 10px; text-align: center; }
-        .match-time { font-size: 18px; font-weight: bold; color: #2c3e50; }
-        .btn-select { background: #27ae60; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; width: 100%; margin-top: 5px; font-weight: bold;}
-        .btn-select:hover { background: #219150; }
-        
-        .loading { text-align: center; display: none; font-size: 18px; color: #666; margin-top: 20px;}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2>🎛️ Central de Transmissão</h2>
-        
-        <button class="btn-search" onclick="searchMatches()">
-            🔍 BUSCAR JOGOS DE HOJE
-        </button>
-        
-        <div id="loadingMsg" class="loading">Consultando a API...</div>
+        let datePart = parts[0]; // YYYY-MM-DD
+        let timePart = parts[1]; // HH:MM
+        let meridian = parts.length > 2 ? parts[2] : null;
 
-        <div class="section-title live-title">🔴 AO VIVO AGORA</div>
-        <div class="games-grid" id="liveContainer"></div>
+        if (!timePart) return new Date(); 
 
-        <div class="section-title upcoming-title">⏳ VAI COMEÇAR</div>
-        <div class="games-grid" id="upcomingContainer"></div>
+        let [hours, minutes] = timePart.split(':').map(Number);
 
-        <div class="section-title finished-title">🏁 ENCERRADOS / DATA PASSADA</div>
-        <div class="games-grid" id="finishedContainer"></div>
+        // Conversão 12h para 24h
+        if (meridian === 'PM' && hours < 12) hours += 12;
+        if (meridian === 'AM' && hours === 12) hours = 0;
+
+        // IMPORTANTE: Criamos a data sem o 'Z' no final.
+        // Isso faz o JS interpretar como "Horário Local" (o mesmo do seu PC/Servidor),
+        // corrigindo o erro de o jogo aparecer 3 horas antes.
+        const isoString = `${datePart}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000`;
         
-        <hr style="margin-top: 50px;">
-        <div style="text-align: center; color: #aaa; font-size: 12px; margin-bottom: 30px;">
-            Não achou? Digite o ID Manualmente: 
-            <input type="text" id="manualId" style="padding:5px; border:1px solid #ccc; border-radius: 4px;"> 
-            <button onclick="trackManual()" style="padding: 5px 10px; cursor:pointer;">Ir</button>
-        </div>
-    </div>
+        return new Date(isoString);
+    } catch (e) {
+        console.error("Erro ao processar data:", e);
+        return new Date();
+    }
+}
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-        const socket = io();
+// --- BUSCAR LISTA DE JOGOS ---
+async function listMatches() {
+    try {
+        console.log("Buscando lista de jogos...");
+        const response = await axios.get(`${BASE_URL}/get_games`, { params: { key: API_KEY } });
 
-        function searchMatches() {
-            document.getElementById('loadingMsg').style.display = 'block';
-            ['liveContainer', 'upcomingContainer', 'finishedContainer'].forEach(id => {
-                document.getElementById(id).innerHTML = '';
-            });
-            socket.emit('searchMatches');
-        }
+        let data = response.data;
+        if (data && typeof data === 'object' && !Array.isArray(data)) data = Object.values(data);
+        if (!Array.isArray(data)) return [];
 
-        socket.on('matchesFound', (matches) => {
-            document.getElementById('loadingMsg').style.display = 'none';
+        const now = new Date();
+        // Gera string YYYY-MM-DD local para garantir que pegamos jogos de "hoje" no seu fuso
+        const todayStr = now.getFullYear() + '-' + 
+                        String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                        String(now.getDate()).padStart(2, '0');
+
+        // --- FILTRO DE ESPORTES ---
+        const forbiddenSports = [
+            'ncaab', 'ncaa', 'basketball', 'nba', 'euroleague', 
+            'call of duty', 'league of legends', 'valorant', 'esports',
+            'ufc', 'boxing', 'mma', 'fighting',
+            'nhl', 'hockey', 'nfl', 'football', 'american football',
+            'volleyball', 'tennis', 'handball', 'cricket', 'rugby'
+        ];
+
+        const validMatches = data.filter(m => {
+            const sport = (m.sport || "").toLowerCase();
+            const isForbidden = forbiddenSports.some(bad => sport.includes(bad));
+            if (isForbidden) return false;
             
-            if (!matches || matches.length === 0) {
-                document.getElementById('upcomingContainer').innerHTML = '<p style="color:#666">Nenhum jogo de futebol encontrado para hoje.</p>';
-                return;
-            }
-
-            const now = new Date();
-
-            matches.forEach(match => {
-                // --- CORREÇÃO DA DATA ---
-                // O servidor agora manda formato ISO (2026-01-30T19:00:00.000Z).
-                // O navegador entende isso nativamente.
-                const matchDate = new Date(match.utcDate);
-                
-                // Formata hora para o usuário (Ex: 16:30)
-                const timeDisplay = matchDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-
-                // --- LÓGICA DE SEPARAÇÃO (Prateleiras) ---
-                // Diferença em horas entre Agora e o Jogo
-                const diffMs = matchDate - now;
-                const diffHours = diffMs / (1000 * 60 * 60);
-
-                let containerId = 'upcomingContainer'; // Padrão: Futuro
-
-                if (diffHours < -3) { 
-                    // Se o jogo começou há mais de 3 horas -> Encerrado
-                    containerId = 'finishedContainer';
-                } else if (diffHours <= 0 && diffHours >= -3) {
-                    // Se começou há menos de 3h e ainda não "passou" -> Ao Vivo
-                    containerId = 'liveContainer';
-                } 
-                // Se diffHours > 0, é futuro (upcoming)
-
-                // Cria o Card
-                const card = document.createElement('div');
-                card.className = 'game-card';
-                // ASPAS NO ID: Garantimos que o ID (letras/numeros) fique entre aspas simples
-                card.innerHTML = `
-                    <div class="league-name" title="${match.competition.name}">${match.competition.name}</div>
-                    <div class="teams-row">
-                        <div class="team-info"><div class="team-name">${match.homeTeam.shortName}</div></div>
-                        <span class="vs">X</span>
-                        <div class="team-info"><div class="team-name">${match.awayTeam.shortName}</div></div>
-                    </div>
-                    <div class="card-footer">
-                        <div class="match-time">${timeDisplay}</div>
-                        <button class="btn-select" onclick="selectGame('${match.id}')">TRANSMITIR</button>
-                    </div>
-                `;
-                
-                document.getElementById(containerId).appendChild(card);
-            });
+            // Filtro de Data
+            return m.when && m.when.startsWith(todayStr);
         });
 
-        function selectGame(id) {
-            if(confirm('Deseja transmitir este jogo no Overlay?')) {
-                socket.emit('trackMatch', id);
-                alert('Comando enviado! Verifique o Overlay.');
+        matchesCache = validMatches;
+
+        return validMatches.map(event => {
+            let home = "Casa", away = "Fora";
+            // Tenta limpar nomes do tipo "Time A vs Time B"
+            if (event.orig_teams && event.orig_teams.includes(' vs ')) {
+                const parts = event.orig_teams.split(' vs ');
+                home = parts[0].trim(); away = parts[1].trim();
+            } else if (event.game && event.game.includes(' vs ')) {
+                const parts = event.game.split(' vs ');
+                home = parts[0].trim(); away = parts[1].split(',')[0].trim();
             }
+
+            // Processa a data corrigida
+            const realDateObj = parseBoltDate(event.when);
+
+            return {
+                id: event.universal_id || event.id,
+                utcDate: realDateObj.toString(), // Envia como string pronta para o front
+                competition: { name: event.sport || "Futebol" },
+                homeTeam: { shortName: home },
+                awayTeam: { shortName: away }
+            };
+        });
+
+    } catch (error) {
+        console.error("Erro ao listar jogos:", error.message);
+        return [];
+    }
+}
+
+// --- DADOS DETALHADOS DO JOGO ---
+async function fetchGameData(forceUpdate = false) {
+    if (!gameState.matchId) return;
+
+    try {
+        let data = matchesCache;
+        // Se for update forçado ou cache vazio, busca na API de novo
+        if (forceUpdate || data.length === 0) {
+             const response = await axios.get(`${BASE_URL}/get_games`, { params: { key: API_KEY } });
+             let raw = response.data;
+             if (raw && typeof raw === 'object' && !Array.isArray(raw)) data = Object.values(raw);
+             else data = raw || [];
         }
-        
-        function trackManual() {
-            const id = document.getElementById('manualId').value;
-            if(id) selectGame(id);
+
+        const match = data.find(m => String(m.id) === String(gameState.matchId) || String(m.universal_id) === String(gameState.matchId));
+
+        if (match) {
+            if (match.orig_teams && match.orig_teams.includes(' vs ')) {
+                const parts = match.orig_teams.split(' vs ');
+                gameState.homeName = parts[0].trim(); gameState.awayName = parts[1].trim();
+            }
+
+            if (match.score) {
+                const parts = String(match.score).split('-');
+                if(parts.length >= 2) {
+                    gameState.homeScore = parts[0].trim(); gameState.awayScore = parts[1].trim();
+                }
+            }
+            
+            // API Free não retorna escudos, deixamos vazio por enquanto
+            gameState.homeCrest = ""; 
+            gameState.awayCrest = "";
+            gameState.gameTime = match.status || "AO VIVO"; 
+            
+            io.emit('updateOverlay', gameState);
         }
-    </script>
-</body>
-</html>
+    } catch (error) {
+        console.error("Erro ao buscar detalhes do jogo:", error.message);
+    }
+}
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
+});
