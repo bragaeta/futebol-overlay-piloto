@@ -11,6 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- CONFIGURAÇÃO BOLT ODDS ---
+// Mantenha esta chave segura e não compartilhe publicamente em repositórios abertos
 const API_KEY = "78cfaff5-5122-4990-9112-5dc1d12a6179";
 const BASE_URL = "https://spro.agency/api";
 
@@ -44,39 +45,48 @@ io.on('connection', (socket) => {
     });
 });
 
+// Loop para atualizar os dados do jogo automaticamente a cada 15s
 setInterval(() => {
     if (gameState.matchId) fetchGameData();
 }, 15000); 
 
-// --- FUNÇÃO DE DATA (CORREÇÃO DE FUSO) ---
+// --- FUNÇÃO DE DATA (CORRIGIDA) ---
 function parseBoltDate(dateStr) {
     try {
         if (!dateStr) return new Date();
-        // Remove a vírgula: "2026-01-30, 07:00 PM" -> "2026-01-30 07:00 PM"
-        let cleanStr = dateStr.replace(',', ''); 
-        const parts = cleanStr.split(' '); 
         
-        let datePart = parts[0]; 
-        let timePart = parts[1]; 
+        // Remove a vírgula: "2026-01-30, 07:00 PM" -> "2026-01-30 07:00 PM"
+        let cleanStr = dateStr.replace(',', '').trim(); 
+        const parts = cleanStr.split(/\s+/); 
+        
+        let datePart = parts[0]; // YYYY-MM-DD
+        let timePart = parts[1]; // HH:MM
         let meridian = parts.length > 2 ? parts[2] : null;
+
+        if (!timePart) return new Date(); 
 
         let [hours, minutes] = timePart.split(':').map(Number);
 
+        // Conversão 12h para 24h
         if (meridian === 'PM' && hours < 12) hours += 12;
         if (meridian === 'AM' && hours === 12) hours = 0;
 
-        // Cria data UTC
-        const isoString = `${datePart}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000Z`;
+        // IMPORTANTE: Criamos a data sem o 'Z' no final.
+        // Isso faz o JS interpretar como "Horário Local" (o mesmo do seu PC/Servidor),
+        // corrigindo o erro de o jogo aparecer 3 horas antes.
+        const isoString = `${datePart}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000`;
+        
         return new Date(isoString);
     } catch (e) {
+        console.error("Erro ao processar data:", e);
         return new Date();
     }
 }
 
-// --- BUSCAR LISTA ---
+// --- BUSCAR LISTA DE JOGOS ---
 async function listMatches() {
     try {
-        console.log("Buscando lista...");
+        console.log("Buscando lista de jogos...");
         const response = await axios.get(`${BASE_URL}/get_games`, { params: { key: API_KEY } });
 
         let data = response.data;
@@ -84,7 +94,10 @@ async function listMatches() {
         if (!Array.isArray(data)) return [];
 
         const now = new Date();
-        const todayStr = now.toISOString().split('T')[0]; 
+        // Gera string YYYY-MM-DD local para garantir que pegamos jogos de "hoje" no seu fuso
+        const todayStr = now.getFullYear() + '-' + 
+                        String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                        String(now.getDate()).padStart(2, '0');
 
         // --- FILTRO DE ESPORTES ---
         const forbiddenSports = [
@@ -100,7 +113,7 @@ async function listMatches() {
             const isForbidden = forbiddenSports.some(bad => sport.includes(bad));
             if (isForbidden) return false;
             
-            // Filtro de Data: Deve começar com a data de hoje (YYYY-MM-DD)
+            // Filtro de Data
             return m.when && m.when.startsWith(todayStr);
         });
 
@@ -108,6 +121,7 @@ async function listMatches() {
 
         return validMatches.map(event => {
             let home = "Casa", away = "Fora";
+            // Tenta limpar nomes do tipo "Time A vs Time B"
             if (event.orig_teams && event.orig_teams.includes(' vs ')) {
                 const parts = event.orig_teams.split(' vs ');
                 home = parts[0].trim(); away = parts[1].trim();
@@ -116,11 +130,12 @@ async function listMatches() {
                 home = parts[0].trim(); away = parts[1].split(',')[0].trim();
             }
 
+            // Processa a data corrigida
             const realDateObj = parseBoltDate(event.when);
 
             return {
                 id: event.universal_id || event.id,
-                utcDate: realDateObj.toISOString(), // Manda ISO limpo
+                utcDate: realDateObj.toString(), // Envia como string pronta para o front
                 competition: { name: event.sport || "Futebol" },
                 homeTeam: { shortName: home },
                 awayTeam: { shortName: away }
@@ -128,17 +143,18 @@ async function listMatches() {
         });
 
     } catch (error) {
-        console.error("Erro Lista:", error.message);
+        console.error("Erro ao listar jogos:", error.message);
         return [];
     }
 }
 
-// --- DADOS DO JOGO ---
+// --- DADOS DETALHADOS DO JOGO ---
 async function fetchGameData(forceUpdate = false) {
     if (!gameState.matchId) return;
 
     try {
         let data = matchesCache;
+        // Se for update forçado ou cache vazio, busca na API de novo
         if (forceUpdate || data.length === 0) {
              const response = await axios.get(`${BASE_URL}/get_games`, { params: { key: API_KEY } });
              let raw = response.data;
@@ -161,12 +177,15 @@ async function fetchGameData(forceUpdate = false) {
                 }
             }
             
-            gameState.homeCrest = ""; gameState.awayCrest = ""; // Sem escudos na Free
+            // API Free não retorna escudos, deixamos vazio por enquanto
+            gameState.homeCrest = ""; 
+            gameState.awayCrest = "";
             gameState.gameTime = match.status || "AO VIVO"; 
+            
             io.emit('updateOverlay', gameState);
         }
     } catch (error) {
-        console.error("Erro Jogo:", error.message);
+        console.error("Erro ao buscar detalhes do jogo:", error.message);
     }
 }
 
