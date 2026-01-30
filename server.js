@@ -19,10 +19,9 @@ let gameState = {
     matchId: null
 };
 
-// CHAVE DA NOVA API (Football-Data.org)
-// Se for rodar local, coloque sua chave entre as aspas abaixo.
-// Se for no Render, lembre de criar a variavel API_TOKEN lá.
-const API_TOKEN = process.env.API_TOKEN || "4aa1bd59062744a78c557039bf31b530"; 
+// --- AQUI ESTÁ A SOLUÇÃO ---
+// Estou colocando sua chave direto aqui para destravar o teste
+const API_TOKEN = "4aa1bd59062744a78c557039bf31b530"; 
 
 io.on('connection', (socket) => {
     socket.emit('updateOverlay', gameState);
@@ -52,10 +51,10 @@ async function fetchGameData() {
     try {
         const options = {
             method: 'GET',
-            // URL nova da Football-Data.org
+            // URL da Football-Data.org
             url: `https://api.football-data.org/v4/matches/${gameState.matchId}`,
             headers: {
-                'X-Auth-Token': API_TOKEN // Nome do cabeçalho mudou
+                'X-Auth-Token': API_TOKEN 
             }
         };
 
@@ -63,26 +62,29 @@ async function fetchGameData() {
         const match = response.data;
 
         if (match) {
-            // Lógica nova para ler os dados dessa API específica
-            
-            // Placar (Trata null como 0)
+            // Lógica para ler os dados
             const scoreHome = match.score.fullTime.home ?? match.score.halfTime.home ?? 0;
             const scoreAway = match.score.fullTime.away ?? match.score.halfTime.away ?? 0;
             
             gameState.homeScore = scoreHome;
             gameState.awayScore = scoreAway;
-
-            // Tempo (Essa API é um pouco limitada com minutos exatos no plano free, 
-            // então mostramos o STATUS: IN_PLAY, PAUSED, FINISHED)
-            gameState.gameTime = match.status === 'IN_PLAY' ? 'AO VIVO' : match.status;
+            
+            // Tratamento do tempo de jogo
+            let statusDisplay = match.status;
+            if(match.status === 'IN_PLAY') statusDisplay = 'AO VIVO';
+            if(match.status === 'PAUSED') statusDisplay = 'INTERVALO';
+            if(match.status === 'FINISHED') statusDisplay = 'FIM';
+            
+            gameState.gameTime = statusDisplay;
             
             gameState.homeName = match.homeTeam.shortName || match.homeTeam.name;
             gameState.awayName = match.awayTeam.shortName || match.awayTeam.name;
 
             io.emit('updateOverlay', gameState);
-            console.log(`Atualizado: ${gameState.homeName} ${gameState.homeScore} x ${gameState.awayScore} ${gameState.awayName}`);
+            console.log(`Atualizado: ${gameState.homeScore} x ${gameState.awayScore} (${statusDisplay})`);
         }
     } catch (error) {
+        // Log detalhado para sabermos o erro
         console.error("Erro na API:", error.response ? error.response.status : error.message);
     }
 }
