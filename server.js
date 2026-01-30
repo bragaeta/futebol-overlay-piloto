@@ -20,7 +20,7 @@ const BASE_URL = "https://spro.agency/api";
 
 // AJUSTE MANUAL DE HORAS: Se estiver errado, mude este valor.
 // Ex: Se o jogo é 19:00 e mostra 16:00, coloque 3. Se mostra 22:00, coloque -3.
-const FIX_HORA = 0; 
+const FIX_HORA = +5; 
 
 let gameState = {
     homeName: "CASA", awayName: "FORA",
@@ -186,3 +186,4 @@ async function fetchGameData(forceUpdate = false) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => { console.log(`Rodando na porta ${PORT}`); });
+
