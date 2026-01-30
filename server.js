@@ -12,15 +12,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Estado do Jogo
 let gameState = {
-    homeName: "Time A", awayName: "Time B",
+    homeName: "Aguardando...", awayName: "Aguardando...",
     homeScore: 0, awayScore: 0,
     homeColor: "#ff0000", awayColor: "#0000ff",
     gameTime: "00:00",
     matchId: null
 };
 
-// --- AQUI ESTÁ A SOLUÇÃO ---
-// Estou colocando sua chave direto aqui para destravar o teste
+// SUA CHAVE DIRETO NO CÓDIGO (Para teste)
 const API_TOKEN = "4aa1bd59062744a78c557039bf31b530"; 
 
 io.on('connection', (socket) => {
@@ -49,12 +48,13 @@ async function fetchGameData() {
     if (!gameState.matchId) return;
 
     try {
+        console.log(`Tentando buscar dados do jogo ${gameState.matchId} usando a chave iniciando em ${API_TOKEN.substring(0,4)}...`);
+        
         const options = {
             method: 'GET',
-            // URL da Football-Data.org
             url: `https://api.football-data.org/v4/matches/${gameState.matchId}`,
             headers: {
-                'X-Auth-Token': API_TOKEN 
+                'X-Auth-Token': API_TOKEN.trim() // .trim() remove espaços invisíveis
             }
         };
 
@@ -62,30 +62,32 @@ async function fetchGameData() {
         const match = response.data;
 
         if (match) {
-            // Lógica para ler os dados
             const scoreHome = match.score.fullTime.home ?? match.score.halfTime.home ?? 0;
             const scoreAway = match.score.fullTime.away ?? match.score.halfTime.away ?? 0;
             
             gameState.homeScore = scoreHome;
             gameState.awayScore = scoreAway;
             
-            // Tratamento do tempo de jogo
             let statusDisplay = match.status;
             if(match.status === 'IN_PLAY') statusDisplay = 'AO VIVO';
             if(match.status === 'PAUSED') statusDisplay = 'INTERVALO';
             if(match.status === 'FINISHED') statusDisplay = 'FIM';
             
             gameState.gameTime = statusDisplay;
-            
-            gameState.homeName = match.homeTeam.shortName || match.homeTeam.name;
-            gameState.awayName = match.awayTeam.shortName || match.awayTeam.name;
+            gameState.homeName = match.homeTeam.tla || match.homeTeam.shortName || "CASA";
+            gameState.awayName = match.awayTeam.tla || match.awayTeam.shortName || "FORA";
 
             io.emit('updateOverlay', gameState);
-            console.log(`Atualizado: ${gameState.homeScore} x ${gameState.awayScore} (${statusDisplay})`);
+            console.log(`SUCESSO! Placar atualizado: ${scoreHome} x ${scoreAway}`);
         }
     } catch (error) {
-        // Log detalhado para sabermos o erro
-        console.error("Erro na API:", error.response ? error.response.status : error.message);
+        // AQUI ESTÁ O SEGREDO DO DIAGNÓSTICO
+        if (error.response) {
+            console.error("ERRO DA API (Detalhado):", error.response.status, error.response.statusText);
+            console.error("Mensagem da API:", JSON.stringify(error.response.data));
+        } else {
+            console.error("Erro de conexão:", error.message);
+        }
     }
 }
 
