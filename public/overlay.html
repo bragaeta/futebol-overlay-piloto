@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Overlay OBS</title>
+    <style>
+        body { 
+            margin: 0; overflow: hidden; background: transparent; 
+            font-family: 'Arial', sans-serif; color: white;
+            display: grid; grid-template-rows: 100px 1fr 150px;
+            height: 100vh; width: 100vw;
+        }
+        /* Variáveis CSS que serão alteradas pelo JS */
+        :root { --home-color: #333; --away-color: #333; }
+
+        /* Placar Topo */
+        .header {
+            display: flex; justify-content: center; align-items: center;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+            gap: 20px; padding-top: 10px;
+        }
+        .team-box {
+            padding: 10px 30px; font-size: 24px; font-weight: bold; text-transform: uppercase;
+            background: rgba(0,0,0,0.8); border-bottom: 5px solid;
+            min-width: 150px; text-align: center; border-radius: 8px;
+        }
+        .score-box {
+            font-size: 40px; font-weight: 800; background: #222; 
+            padding: 5px 25px; border-radius: 10px; border: 1px solid #555;
+        }
+        
+        /* Área Central (Vazia para Câmera) */
+        .main-area { display: flex; justify-content: space-between; padding: 20px; }
+        .sidebar { width: 250px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 10px; }
+        .camera-hole { flex-grow: 1; border: 2px dashed rgba(255,255,255,0.1); margin: 0 20px; display: flex; justify-content: center; align-items: center; color: rgba(255,255,255,0.3);}
+
+        /* Rodapé */
+        .footer { display: flex; justify-content: center; align-items: center; gap: 20px; }
+        .campinho { width: 400px; height: 100px; background: #2a4a2a; border-radius: 10px; display: flex; justify-content: center; align-items: center; border: 2px solid #fff;}
+        
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="team-box" id="homeName" style="border-color: var(--home-color)">CASA</div>
+        <div class="score-box"><span id="homeScore">0</span> - <span id="awayScore">0</span></div>
+        <div class="team-box" id="awayName" style="border-color: var(--away-color)">FORA</div>
+        <div style="background:white; color:black; padding:5px; border-radius:4px; font-weight:bold" id="gameTime">00:00</div>
+    </div>
+
+    <div class="main-area">
+        <div class="sidebar">
+            <h3>Escalação Casa</h3>
+            <p>1. Goleiro</p><p>10. Craque</p>
+        </div>
+        <div class="camera-hole">ÁREA DA CÂMERA (TRANSPARENTE)</div>
+        <div class="sidebar">
+            <h3>Escalação Fora</h3>
+            <p>1. Goleiro</p><p>9. Atacante</p>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div class="campinho">WIDGET API (Campinho)</div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        // Escuta atualizações do servidor
+        socket.on('updateOverlay', (data) => {
+            document.getElementById('homeName').innerText = data.homeName;
+            document.getElementById('awayName').innerText = data.awayName;
+            document.getElementById('homeScore').innerText = data.homeScore;
+            document.getElementById('awayScore').innerText = data.awayScore;
+            document.getElementById('gameTime').innerText = data.gameTime;
+
+            // Atualiza cores via CSS Variables
+            document.documentElement.style.setProperty('--home-color', data.homeColor);
+            document.documentElement.style.setProperty('--away-color', data.awayColor);
+        });
+    </script>
+</body>
+</html>
